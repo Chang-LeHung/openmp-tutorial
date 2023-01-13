@@ -16,3 +16,4 @@ add_executable(section src/runtime/section.c)
 
 add_executable(example01 src/sections/example01.c)
 add_executable(critical src/sync/critical.c)
+add_executable(for src/directives/for.c)
