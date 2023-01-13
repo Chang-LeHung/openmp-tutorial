@@ -3,9 +3,16 @@ project(openmp_tutorial)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_C_COMPILER "/usr/bin/gcc")
+set(CMAKE_BUILD_TYPE "Debug")
 
 set(CMAKE_C_FLAGS "-fopenmp ${CMAKE_C_FLAGS}")
 
 
 
 add_executable(active_level src/runtime/active_level.c)
+
+add_executable(thread_limit src/runtime/thread_limit.c)
+add_executable(section src/runtime/section.c)
+
+add_executable(example01 src/sections/example01.c)
+add_executable(critical src/sync/critical.c)
