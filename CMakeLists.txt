@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_C_COMPILER "/usr/bin/gcc")
 set(CMAKE_BUILD_TYPE "Debug")
 
-set(CMAKE_C_FLAGS "-fopenmp ${CMAKE_C_FLAGS}")
+set(CMAKE_C_FLAGS "-fopenmp -g ${CMAKE_C_FLAGS}")
 
 
 
@@ -17,3 +17,6 @@ add_executable(section src/runtime/section.c)
 add_executable(example01 src/sections/example01.c)
 add_executable(critical src/sync/critical.c)
 add_executable(for src/directives/for.c)
+add_executable(single src/directives/single.c)
+add_executable(order src/directives/order.c)
+add_executable(flush src/directives/flush.c)
