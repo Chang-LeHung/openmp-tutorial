@@ -1,4 +1,4 @@
-# Openmp Runtime 库函数汇总
+# Openmp Runtime 库函数汇总（上）
 
 ## 并行域相关
 
