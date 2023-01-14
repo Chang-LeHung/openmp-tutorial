@@ -3,8 +3,7 @@
 #include <omp.h>
 
 
-int main()
-{
+int main() {
 #pragma omp parallel sections num_threads(2) default(none)
    {
 #pragma omp section
