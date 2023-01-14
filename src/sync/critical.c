@@ -12,12 +12,12 @@ int main()
       #pragma omp critical
       {
          data++;
-         if (data == 6)
-            sleep(10);
       }
-      printf("1> tid = %d\n", omp_get_thread_num());
-      printf("2> tid = %d\n", omp_get_thread_num());
-      printf("3> tid = %d\n", omp_get_thread_num());
+      #pragma omp critical
+      {
+         data--;
+      }
    }
+   printf("data = %d\n", data);
    return 0;
 }
