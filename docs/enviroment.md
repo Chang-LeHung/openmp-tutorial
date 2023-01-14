@@ -2,7 +2,7 @@
 
 ## 并行域相关
 
-- omp_in_parallel，如果当前线程正在并行域内不，则此函数返回true，否则返回false。
+- omp_in_parallel，如果当前线程正在并行域内部，则此函数返回true，否则返回false。
 
 ```c
 
@@ -80,3 +80,4 @@ int main()
 ```
 
 - omp_get_active_level，这个函数主要是返回当前线程所在的并行域的嵌套的并行块的级别，从 1 开始，从外往内没加一层这个值就加一。
+
