@@ -5,7 +5,7 @@
 int main()
 {
    omp_set_nested(1);
-   omp_set_max_active_levels(2);
+   omp_set_max_active_levels(3);
 
 #pragma omp parallel num_threads(2) default(none)
    {
