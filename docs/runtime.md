@@ -1,7 +1,5 @@
 # Openmp Runtime 库函数汇总（上）
 
-## 并行域相关
-
 - omp_in_parallel，如果当前线程正在并行域内部，则此函数返回true，否则返回false。
 
 ```c
@@ -178,6 +176,62 @@ Up one level team size = 5
 ```
 
 在上面的代码当中在非并行域的代码当中，程序的输出结果和我们上面谈到的是相同的，level 等于 0，team size 等于 1，在并行域当中输出的结果也是符合预期的，我们来看一下最后两个输出，倒数第一个输出是查看上一个 level 的输出结果，可以看到他的输出结果等于 5，这和我们设置的 5 个线程是相符的。
+
+- omp_get_num_procs，这个函数相对比较简单，主要是返回你的系统当中处理器的数量。
+
+```c
+
+#include <stdio.h>
+#include <omp.h>
+
+int main()
+{
+   int nprocs = omp_get_num_procs();
+   printf("Number of processors = %d\n", nprocs);
+   return 0;
+}
+```
+
+- omp_in_final，这个函数主要是查看当前线程是否在最终任务或者包含任务当中，比如在下面的例子当中，我们就可以测试这个函数：
+
+```c
+
+#include <stdio.h>
+#include <omp.h>
+
+int echo(int n)
+{
+   int ret;
+#pragma omp task shared(ret, n) final(n <= 10)
+   {
+      if(omp_in_final())
+      {
+         printf("In final n = %d\n", n);
+         ret = n;
+      }
+      else
+      {
+         ret = 1 + echo(n - 1);
+      }
+   }
+   return ret;
+}
+
+int main()
+{
+   printf("echo(100) = %d\n", echo(100));
+   return 0;
+}
+```
+
+上面的程序的输出结果如下所示：
+
+```shell
+In final n = 10
+echo(100) = 100
+```
+
+在上面的程序我们在函数 echo 当中定义了一个任务，当参数 n <= 10 的时候，这个任务会变成一个 final 任务，因此在 n == 10 的时候，这个函数的 omp_in_final 会返回 true，因此会直接将 10 赋值给 ret ，不会进行递归调用，因此我们得到了上面的输出结果。
 
 - omp_get_active_level，这个函数主要是返回当前线程所在的并行域的嵌套的并行块的级别，从 1 开始，从外往内没加一层这个值就加一。
 
