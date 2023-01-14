@@ -27,3 +27,4 @@ add_executable(omp_set_max_active_levels src/runtime/omp_set_max_active_levels.c
 add_executable(omp_get_level src/runtime/omp_get_level.c)
 add_executable(omp_get_ancestor_thread_num src/runtime/omp_get_ancestor_thread_num.c)
 add_executable(omp_get_thread_num src/runtime/omp_get_thread_num.c)
+add_executable(omp_get_team_size src/runtime/omp_get_team_size.c)
