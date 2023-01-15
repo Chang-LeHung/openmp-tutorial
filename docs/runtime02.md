@@ -2,7 +2,7 @@
 
 ## 前言
 
-在本篇文章当中主要给大家介绍一下 OpenMP 当中经常使用到的锁并且仔细分析它其中的内部原理！在 OpenMP 当中主要有两种类型的锁，一个是 omp_lock_t 另外一个是 omp_nest_lock_t，这两个锁的主要区别就是后者是一个可重入锁，所谓可冲入锁就是一旦一个线程已经拿到这个锁了，那么它下一次想要拿这个锁的就是就不会阻塞，但是如果是 omp_lock_t 不管一个线程是否拿到了锁，只要当前锁没有释放，不管哪一个线程都不能够拿到这个锁。在后问当中将有仔细的例子来解释这一点。
+在本篇文章当中主要给大家介绍一下 OpenMP 当中经常使用到的锁并且仔细分析它其中的内部原理！在 OpenMP 当中主要有两种类型的锁，一个是 omp_lock_t 另外一个是 omp_nest_lock_t，这两个锁的主要区别就是后者是一个可重入锁，所谓可冲入锁就是一旦一个线程已经拿到这个锁了，那么它下一次想要拿这个锁的就是就不会阻塞，但是如果是 omp_lock_t 不管一个线程是否拿到了锁，只要当前锁没有释放，不管哪一个线程都不能够拿到这个锁。在后问当中将有仔细的例子来解释这一点。本篇文章是基于 GNU OpenMP Runtime Library !
 
 ## 深入分析 omp_lock_t
 
@@ -74,4 +74,101 @@ int main()
 在上面的函数我们定义了一个 omp_lock_t 锁，并且在并行域内启动了 16 个线程去执行 data ++ 的操作，因为是多线程环境，因此我们需要将上面的操作进行加锁处理。
 
 ## omp_lock_t 源码分析
+
+- omp_init_lock，对于这个函数来说最终在 OpenMP 动态库内部会调用下面的函数：
+
+```c
+typedef int gomp_mutex_t;
+static inline void
+gomp_mutex_init (gomp_mutex_t *mutex)
+{
+  *mutex = 0;
+}
+```
+
+从上面的函数我们可以知道这个函数的作用就是将我们定义的 4 个字节的锁赋值为0，这就是锁的初始化，其实很简单。
+
+- omp_set_lock，这个函数最终会调用 OpenMP 内部的一个函数，具体如下所示：
+
+```c
+static inline void
+gomp_mutex_lock (gomp_mutex_t *mutex)
+{
+  int oldval = 0;
+  if (!__atomic_compare_exchange_n (mutex, &oldval, 1, false,
+				    MEMMODEL_ACQUIRE, MEMMODEL_RELAXED))
+    gomp_mutex_lock_slow (mutex, oldval);
+}
+```
+
+在上面的函数当中线程首先会调用 __atomic_compare_exchange_n 将锁的值由 0 变成 1，还记得我们在前面对锁进行初始化的时候将锁的值变成0了吗？
+
+我们首先需要了解一下 __atomic_compare_exchange_n ，这个是  gcc 内嵌的一个函数，在这里我们只关注前面三个参数，后面三个参数与内存模型有关，这并不是我们本篇文章的重点，他的主要功能是查看 mutex 指向的地址的值等不等于 oldval ，如果等于则将这个值变成 1，这一整个操作能够保证原子性，如成功将 mutex 指向的值变成 1 的话，那么这个函数就返回 true 否则返回 false 对应 C 语言的数据就是 1 和 0 。
+
+如果这个操作不成功那么就会调用 gomp_mutex_lock_slow 函数这个函数的主要作用就是如果使用不能够使用原子指令获取锁的话，那么就需要进入内核态，将这个线程挂起。在这个函数的内部还会测试是否能够通过源自操作获取锁，因为可能在我们调用 gomp_mutex_lock_slow 这个函数的时候可能有其他线程释放锁了。如果仍然不能够成功的话，那么就会真正的将这个线程挂起不会浪费 CPU 资源，gomp_mutex_lock_slow 函数具体如下：
+
+```c
+void
+gomp_mutex_lock_slow (gomp_mutex_t *mutex, int oldval)
+{
+  /* First loop spins a while.  */
+  // 先自旋 如果自旋一段时间还没有获取锁 那就将线程刮挂起
+  while (oldval == 1)
+    {
+      if (do_spin (mutex, 1))
+	{
+	  /* Spin timeout, nothing changed.  Set waiting flag.  */
+	  oldval = __atomic_exchange_n (mutex, -1, MEMMODEL_ACQUIRE);
+    // 如果获得🔒 就返回
+	  if (oldval == 0)
+	    return;
+    // 如果没有获得🔒 那么就将线程刮起
+	  futex_wait (mutex, -1);
+    // 如果第一次刮起没有成功 那么跳出循环  while 挂起
+	  break;
+	}
+      else
+	{
+	  /* Something changed.  If now unlocked, we're good to go.  */
+	  oldval = 0;
+	  if (__atomic_compare_exchange_n (mutex, &oldval, 1, false,
+					   MEMMODEL_ACQUIRE, MEMMODEL_RELAXED))
+	    return;
+	}
+    }
+
+  /* Second loop waits until mutex is unlocked.  We always exit this
+     loop with wait flag set, so next unlock will awaken a thread.  */
+  while ((oldval = __atomic_exchange_n (mutex, -1, MEMMODEL_ACQUIRE)))
+    do_wait (mutex, -1);
+}
+
+```
+
+在上面的函数当中有两个依赖函数，他们的源代码如下所示：
+
+```c
+
+static inline void
+futex_wait (int *addr, int val)
+{
+  int err = syscall (SYS_futex, addr, gomp_futex_wait, val, NULL);
+  if (__builtin_expect (err < 0 && errno == ENOSYS, 0))
+    {
+      gomp_futex_wait &= ~FUTEX_PRIVATE_FLAG;
+      gomp_futex_wake &= ~FUTEX_PRIVATE_FLAG;
+    	// 在这里进行系统调用，将线程挂起
+      syscall (SYS_futex, addr, gomp_futex_wait, val, NULL);
+    }
+}
+
+static inline void do_wait (int *addr, int val)
+{
+  if (do_spin (addr, val))
+    futex_wait (addr, val);
+}
+
+```
+
+
 
