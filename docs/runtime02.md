@@ -36,11 +36,13 @@ void omp_set_lock(omp_lock_t *lock);
 int omp_test_lock(omp_lock_t *lock); 
 ```
 
-- omp_unset_lock，这个函数和上面的函数对应，这个函数的主要作用就是用于解锁，它的函数原型如下：
+- omp_unset_lock，这个函数和上面的函数对应，这个函数的主要作用就是用于解锁，在我们调用这个函数之前，必须要使用 omp_set_lock 或者 omp_test_lock 获取锁，它的函数原型如下：
 
 ```c
 void omp_unset_lock(omp_lock_t *lock);
 ```
+
+- omp_destroy_lock，这个方法主要是对锁进行回收处理，但是对于这个锁来说是没有用的，我们在后文分析他的具体的实现的时候会发现这是一个空函数。
 
 我们现在使用一个例子来具体的体验一下上面的函数：
 
@@ -52,12 +54,15 @@ void omp_unset_lock(omp_lock_t *lock);
 int main()
 {
    omp_lock_t lock;
+   // 对锁进行初始化操作
    omp_init_lock(&lock);
    int data = 0;
 #pragma omp parallel num_threads(16) shared(lock, data) default(none)
    {
+      // 进行加锁处理 同一个时刻只能够有一个线程能够获取锁
       omp_set_lock(&lock);
       data++;
+      // 解锁处理 线程在出临界区之前需要解锁 好让其他线程能够进入临界区
       omp_unset_lock(&lock);
    }
    omp_destroy_lock(&lock);
@@ -67,4 +72,6 @@ int main()
 ```
 
 在上面的函数我们定义了一个 omp_lock_t 锁，并且在并行域内启动了 16 个线程去执行 data ++ 的操作，因为是多线程环境，因此我们需要将上面的操作进行加锁处理。
+
+## omp_lock_t 源码分析
 
