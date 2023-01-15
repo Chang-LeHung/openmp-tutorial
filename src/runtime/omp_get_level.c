@@ -1,6 +1,7 @@
 
 #include <stdio.h>
 #include <omp.h>
+#include <pthread.h>
 
 int main()
 {
@@ -9,13 +10,13 @@ int main()
 
 #pragma omp parallel num_threads(2) default(none)
    {
-      printf("1> omp_get_level = %d omp_get_active_level = %d\n", omp_get_level(), omp_get_active_level());
+      printf("1> omp_get_level = %d omp_get_active_level = %d pthread_self = %ld\n", omp_get_level(), omp_get_active_level(), pthread_self());
 #pragma omp parallel num_threads(2) default(none)
       {
-         printf("2> omp_get_level = %d omp_get_active_level = %d\n", omp_get_level(), omp_get_active_level());
+         printf("2> omp_get_level = %d omp_get_active_level = %d pthread_self = %ld\n", omp_get_level(), omp_get_active_level(), pthread_self());
 #pragma omp parallel num_threads(2) default(none)
          {
-            printf("3> omp_get_level = %d omp_get_active_level = %d\n", omp_get_level(), omp_get_active_level());
+            printf("3> omp_get_level = %d omp_get_active_level = %d pthread_self = %ld\n", omp_get_level(), omp_get_active_level(), pthread_self());
 
          }
       }

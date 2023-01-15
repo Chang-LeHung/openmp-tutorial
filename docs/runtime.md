@@ -378,5 +378,28 @@ int main()
 3> omp_get_level = 3 omp_get_active_level = 3
 ```
 
-可以看到 3> 的输出次数等于8，这个次数就表明外部 4 个线程都在第三个并行块产生了两个线程，这就是设置函数 omp_set_max_active_levels 的效果。
+可以看到 3> 的输出次数等于8，这个次数就表明外部 4 个线程都在第三个并行块产生了两个线程，这就是启动嵌套并行块的效果，这就是设置函数 omp_set_max_active_levels 的效果。
+
+- omp_get_nested，这个函数的作用就是返回是否启动了并行嵌套，在 C 语言当中如果启动了那么就是返回 1，否则就是返回 0。
+
+```c
+
+#include <stdio.h>
+#include <omp.h>
+
+int main()
+{
+   printf("omp_get_nested() = %d\n", omp_get_nested());
+   omp_set_nested(1);
+   printf("omp_get_nested() = %d\n", omp_get_nested());
+   return 0;
+}
+```
+
+上面的程序的输出结果如下所示：
+
+```shell
+omp_get_nested() = 0
+omp_get_nested() = 1
+```
 
