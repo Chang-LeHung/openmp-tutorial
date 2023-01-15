@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <omp.h>
 
+extern unsigned long long  gomp_spin_count_var;
+extern unsigned long long  gomp_throttled_spin_count_var;
 int main()
 {
    omp_lock_t lock;

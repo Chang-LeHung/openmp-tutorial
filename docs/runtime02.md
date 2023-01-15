@@ -103,7 +103,7 @@ gomp_mutex_lock (gomp_mutex_t *mutex)
 
 在上面的函数当中线程首先会调用 __atomic_compare_exchange_n 将锁的值由 0 变成 1，还记得我们在前面对锁进行初始化的时候将锁的值变成0了吗？
 
-我们首先需要了解一下 __atomic_compare_exchange_n ，这个是  gcc 内嵌的一个函数，在这里我们只关注前面三个参数，后面三个参数与内存模型有关，这并不是我们本篇文章的重点，他的主要功能是查看 mutex 指向的地址的值等不等于 oldval ，如果等于则将这个值变成 1，这一整个操作能够保证原子性，如成功将 mutex 指向的值变成 1 的话，那么这个函数就返回 true 否则返回 false 对应 C 语言的数据就是 1 和 0 。
+我们首先需要了解一下 __atomic_compare_exchange_n ，这个是  gcc 内嵌的一个函数，在这里我们只关注前面三个参数，后面三个参数与内存模型有关，这并不是我们本篇文章的重点，他的主要功能是查看 mutex 指向的地址的值等不等于 oldval ，如果等于则将这个值变成 1，这一整个操作能够保证原子性，如成功将 mutex 指向的值变成 1 的话，那么这个函数就返回 true 否则返回 false 对应 C 语言的数据就是 1 和 0 。**如果 oldval 的值不等于 mutex 所指向的值，那么这个函数就会将这个值写入 oldval 。**
 
 如果这个操作不成功那么就会调用 gomp_mutex_lock_slow 函数这个函数的主要作用就是如果使用不能够使用原子指令获取锁的话，那么就需要进入内核态，将这个线程挂起。在这个函数的内部还会测试是否能够通过源自操作获取锁，因为可能在我们调用 gomp_mutex_lock_slow 这个函数的时候可能有其他线程释放锁了。如果仍然不能够成功的话，那么就会真正的将这个线程挂起不会浪费 CPU 资源，gomp_mutex_lock_slow 函数具体如下：
 
@@ -124,7 +124,7 @@ gomp_mutex_lock_slow (gomp_mutex_t *mutex, int oldval)
 	    return;
     // 如果没有获得🔒 那么就将线程刮起
 	  futex_wait (mutex, -1);
-    // 如果第一次刮起没有成功 那么跳出循环  while 挂起
+    // 这里是当挂起的线程被唤醒之后的操作 也有可能是 futex_wait 没有成功
 	  break;
 	}
       else
@@ -145,7 +145,7 @@ gomp_mutex_lock_slow (gomp_mutex_t *mutex, int oldval)
 
 ```
 
-在上面的函数当中有两个依赖函数，他们的源代码如下所示：
+在上面的函数当中有三个依赖函数，他们的源代码如下所示：
 
 ```c
 
@@ -196,10 +196,53 @@ cpu_relax (void)
 
 - 在锁的设计当中有一个非常重要的原则：一个线程最好不要进入内核态被挂起，如果能够在用户态最好在用户态使用原子指令获取锁，这是因为进入内核态是一个非常耗时的事情相比起原子指令来说。
 
-- 锁有以下三个值：
+- 锁（就是我们在前面讨论的一个 4 个字节的 int 类型的值）有以下三个值：
   - -1 表示现在有线程被挂起了。
   - 0  表示现在是一个无锁状态，这个状态就表示锁的竞争比较激烈。
   - 1 表示这个线程正在被一个线程用一个原子指令——比较并交换(CAS)获得了，这个状态表示现在锁的竞争比较轻。
+- _atomic_exchange_n (mutex, -1, MEMMODEL_ACQUIRE); ，这个函数也是 gcc 内嵌的一个函数，这个函数的主要作用就是将 mutex 的值变成 -1，然后将 mutex 指向的地址的原来的值返回。
+- __atomic_load_n (addr, MEMMODEL_RELAXED)，这个函数的作用主要作用是原子的加载 addr 指向的数据。
 
 - futex_wait 函数的功能是将线程挂起，将线程挂起的系统调用为 futex ，大家可以使用命令 man futex 去查看 futex 的手册。
-- do_spin 函数的功能是进行一定次数的原子操作（自旋），如果超过这个次数就表示现在这个锁的竞争比较激烈为了更好的使用 CPU 的计算资源可以将这个线程挂起。如果在自旋（spin）的时候发现锁的值等于 1 那么就返回 0 ，如果在进行 count 次操作之后我们还没有发现锁的值变成 1 那么就返回 1 。在函数 gomp_mutex_lock_slow 当中，
+- do_spin 函数的功能是进行一定次数的原子操作（自旋），如果超过这个次数就表示现在这个锁的竞争比较激烈为了更好的使用 CPU 的计算资源可以将这个线程挂起。如果在自旋（spin）的时候发现锁的值等于 val 那么就返回 0 ，如果在进行 count 次操作之后我们还没有发现锁的值变成 val  那么就返回 1 ，这就表示锁的竞争比较激烈。
+- 可能你会疑惑在函数 gomp_mutex_lock_slow 的最后一部分为什么要用 while 循环，这是因为 do_wait 函数不一定会将线程挂起，这个和 futex 系统调用有关，感兴趣的同学可以去看一下 futex 的文档，就了解这么设计的原因了。
+- 在上面的源代码当中有两个 OpenMP 内部全局变量，gomp_throttled_spin_count_var 和 gomp_spin_count_var 用于表示自旋的次数，这个也是 OpenMP 自己进行设计的这个值和环境变量 OMP_WAIT_POLICY  也有关系，具体的数值也是设计团队的经验值，在这里就不介绍这一部分的源代码了。
+
+其实上面的加锁过程是非常复杂的，大家可以自己自行去好好分析一下这其中的设计，其实是非常值得学习的，上面的加锁代码贯彻的宗旨就是：能不进内核态就别进内核态。
+
+- omp_unset_lock，这个函数的主要功能就是解锁了，我们再来看一下他的源代码设计。这个函数最终调用的 OpenMP 内部的函数为 gomp_mutex_unlock ，其源代码如下所示：
+
+```c
+static inline void
+gomp_mutex_unlock (gomp_mutex_t *mutex)
+{
+  int wait = __atomic_exchange_n (mutex, 0, MEMMODEL_RELEASE);
+  if (__builtin_expect (wait < 0, 0))
+    gomp_mutex_unlock_slow (mutex);
+}
+```
+
+在上面的函数当中调用一个函数 gomp_mutex_unlock_slow ，其源代码如下：
+
+```c
+void
+gomp_mutex_unlock_slow (gomp_mutex_t *mutex)
+{
+  // 表示唤醒 1 个线程
+  futex_wake (mutex, 1);
+}
+
+static inline void
+futex_wake (int *addr, int count)
+{
+  int err = syscall (SYS_futex, addr, gomp_futex_wake, count);
+  if (__builtin_expect (err < 0 && errno == ENOSYS, 0))
+    {
+      gomp_futex_wait &= ~FUTEX_PRIVATE_FLAG;
+      gomp_futex_wake &= ~FUTEX_PRIVATE_FLAG;
+      syscall (SYS_futex, addr, gomp_futex_wake, count);
+    }
+}
+```
+
+在函数 gomp_mutex_unlock 当中首先调用原子操作 __atomic_exchange_n，将锁的值变成 0 也就是无锁状态，这个其实是方便被唤醒的线程能够不被阻塞（关于这一点大家可以好好去分分析 gomp_mutex_lock_slow 最后的 while 循环，就能够理解其中的深意了），然后如果 mutex 原来的值小于 0 ，我们在前面已经谈到过，这个值只能是 -1，这就表示之前有线程进入内核态被挂起了，因此这个线程需要唤醒之前被阻塞的线程，好让他们能够继续执行。
