@@ -1,4 +1,4 @@
-# Openmp Runtime 库函数汇总（下）——锁🔒
+# Openmp Runtime 库函数汇总（下）——深入剖析锁🔒原理与实现
 
 ## 前言
 
