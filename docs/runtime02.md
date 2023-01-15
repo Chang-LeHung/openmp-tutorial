@@ -157,7 +157,7 @@ futex_wait (int *addr, int val)
     {
       gomp_futex_wait &= ~FUTEX_PRIVATE_FLAG;
       gomp_futex_wake &= ~FUTEX_PRIVATE_FLAG;
-    	// 在这里进行系统调用，将线程挂起
+    // 在这里进行系统调用，将线程挂起 
       syscall (SYS_futex, addr, gomp_futex_wait, val, NULL);
     }
 }
@@ -168,7 +168,30 @@ static inline void do_wait (int *addr, int val)
     futex_wait (addr, val);
 }
 
+static inline int do_spin (int *addr, int val)
+{
+  unsigned long long i, count = gomp_spin_count_var;
+
+  if (__builtin_expect (__atomic_load_n (&gomp_managed_threads,
+                                         MEMMODEL_RELAXED)
+                        > gomp_available_cpus, 0))
+    count = gomp_throttled_spin_count_var;
+  for (i = 0; i < count; i++)
+    if (__builtin_expect (__atomic_load_n (addr, MEMMODEL_RELAXED) != val, 0))
+      return 0;
+    else
+      cpu_relax ();
+  return 1;
+}
+
+static inline void
+cpu_relax (void)
+{
+  __asm volatile ("" : : : "memory");
+}
 ```
 
+如果大家对具体的内部实现非常感兴趣可以仔细研读上面的代码，如果从 0 开始解释上面的代码比较麻烦，这里就不做详细的分析了，简要做一下概括：
 
-
+- futex_wait 函数的功能是将线程挂起，将线程挂起的系统调用为 futex ，大家可以使用命令 man futex 去查看 futex 的手册。
+- do_spin 函数的功能是进行一定次数的原子操作
