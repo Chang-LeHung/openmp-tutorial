@@ -247,6 +247,22 @@ futex_wake (int *addr, int count)
 
 在函数 gomp_mutex_unlock 当中首先调用原子操作 __atomic_exchange_n，将锁的值变成 0 也就是无锁状态，这个其实是方便被唤醒的线程能够不被阻塞（关于这一点大家可以好好去分分析 gomp_mutex_lock_slow 最后的 while 循环，就能够理解其中的深意了），然后如果 mutex 原来的值（这个值会被赋值给 wait ）小于 0 ，我们在前面已经谈到过，这个值只能是 -1，这就表示之前有线程进入内核态被挂起了，因此这个线程需要唤醒之前被阻塞的线程，好让他们能够继续执行。唤醒之前线程的函数就是 gomp_mutex_unlock_slow，在这个函数内部会调用 futex_wake 去真正的唤醒一个之前被锁阻塞的线程。
 
+- omp_test_lock，这个函数主要是使用原子指令看是否能够获取锁，而不尝试进入内核，如果成功获取锁返回 1 ，否则返回 0 。这个函数在 OpenMP 内部会最终调用下面的函数。
+
+```c
+
+int
+gomp_test_lock_30 (omp_lock_t *lock)
+{
+  int oldval = 0;
+
+  return __atomic_compare_exchange_n (lock, &oldval, 1, false,
+				      MEMMODEL_ACQUIRE, MEMMODEL_RELAXED);
+}
+```
+
+从上面源代码来看这函数就是做了原子的比较并交换操作，如果成功就是获取锁并且返回值为 1 ，反之没有获取锁那么就不成功返回值就是 0 。
+
 总的说来上面的锁的设计主要有一下的两个方向：
 
 - Fast path : 能够在用户态解决的事儿就别进内核态，只要能够通过原子指令获取锁，那么就使用原子指令，因为进入内核态是一件非常耗时的事情。
@@ -268,20 +284,22 @@ futex_wake (int *addr, int count)
 #include <stdio.h>
 #include <omp.h>
 
-void echo(int n, omp_lock_t * lock, int * s)
+void echo(int n, omp_nest_lock_t* lock, int * s)
 {
    if (n > 5)
    {
-      omp_set_lock(lock);
+      omp_set_nest_lock(lock);
+      // 在这里进行递归调用 因为在上一行代码已经获取锁了 递归调用还需要获取锁
+      // omp_lock_t 是不能满足这个要求的 而 omp_nest_lock_t 能
       echo(n - 1, lock, s);
       *s += 1;
-      omp_unset_lock(lock);
+      omp_unset_nest_lock(lock);
    }
    else
    {
-      omp_set_lock(lock);
+      omp_set_nest_lock(lock);
       *s += n;
-      omp_unset_lock(lock);
+      omp_unset_nest_lock(lock);
    }
 }
 
@@ -289,11 +307,13 @@ int main()
 {
    int n = 100;
    int s = 0;
-   omp_lock_t lock;
-   omp_init_lock(&lock);
+   omp_nest_lock_t lock;
+   omp_init_nest_lock(&lock);
    echo(n, &lock, &s);
    printf("s = %d\n", s);
-   omp_destroy_lock(&lock);
+   omp_destroy_nest_lock(&lock);
+
+   printf("%ld\n", sizeof (omp_nest_lock_t));
    return 0;
 }
 ```
@@ -354,9 +374,84 @@ typedef struct {
 } omp_nest_lock_t;
 ```
 
+现在我们来仔细分析以上面的三个字段的含义：
 
+- lock，这个字段和上面谈到的 omp_lock_t 是一样的作用都是占用 4 个字节，主要是用于原子操作。
+- count，在前面我们已经谈到了 omp_nest_lock_t 同一个线程在获取锁之后仍然能够获取锁，因此这个字段的含义就是表示线程获取了多少次锁。
+- owner，这个字段的含义就比较简单了，我们需要记录是哪个线程获取的锁，这个字段的意义就是执行获取到锁的线程。
+- 这里大家只需要稍微了解一下这几个字段的含义，在后面分析源代码的时候大家就能够体会到这其中设计的精妙之处了。
 
 ## omp_nest_lock_t 源码分析
+
+- omp_init_nest_lock，这个函数的作用主要是进行初始化操作，将 omp_nest_lock_t 中的数据中所有的比特全部变成 0 。在 OpenMP 内部中最终会调用下面的函数：
+
+```c
+void
+gomp_init_nest_lock_30 (omp_nest_lock_t *lock)
+{
+  // 字符 '\0' 对应的数值就是 0
+  memset (lock, '\0', sizeof (*lock));
+}
+```
+
+- omp_set_nest_lock，这个函数的主要作用就是加锁，在 OpenMP 内部最终调用的函数如下所示：
+
+```c
+void
+gomp_set_nest_lock_30 (omp_nest_lock_t *lock)
+{
+  void *me = gomp_icv (true);
+
+  if (lock->owner != me)
+    {
+      gomp_mutex_lock (&lock->lock);
+      lock->owner = me;
+    }
+
+  lock->count++;
+}
+```
+
+- omp_unset_nest_lock
+
+```c
+void
+gomp_unset_nest_lock_30 (omp_nest_lock_t *lock)
+{
+  if (--lock->count == 0)
+    {
+      lock->owner = NULL;
+      gomp_mutex_unlock (&lock->lock);
+    }
+}
+```
+
+- omp_test_nest_lock
+
+```c
+int
+gomp_test_nest_lock_30 (omp_nest_lock_t *lock)
+{
+  void *me = gomp_icv (true);
+  int oldval;
+
+  if (lock->owner == me)
+    return ++lock->count;
+
+  oldval = 0;
+  if (__atomic_compare_exchange_n (&lock->lock, &oldval, 1, false,
+				   MEMMODEL_ACQUIRE, MEMMODEL_RELAXED))
+    {
+      lock->owner = me;
+      lock->count = 1;
+      return 1;
+    }
+
+  return 0;
+}
+```
+
+
 
 ## 源代码函数名称不同的原因揭秘
 
