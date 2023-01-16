@@ -254,7 +254,87 @@ futex_wake (int *addr, int count)
 
 杂谈：
 
-- 其实上面的锁的设计是非公平的我们可以看到在 gomp_mutex_unlock 函数当中，他是直接将 mutex 和 0 进行交换，根据前面的分析现在的锁处于一个没有线程获取的状态，如果这个时候有其他线程进来那么就可以直接通过原子操作获取锁了，而这个线程如果将之前被阻塞的线程唤醒，那么这个被唤醒的线程就会处于 gomp_mutex_lock_slow 最后的那个循环当中，如果这个时候 mutex 的值不等于 0 （因为有新来的线程通过原子指令将 mutex 的值由 0 变成 1 了），那么这个线程将继续阻塞。
+- 其实上面的锁的设计是非公平的我们可以看到在 gomp_mutex_unlock 函数当中，他是直接将 mutex 和 0 进行交换，根据前面的分析现在的锁处于一个没有线程获取的状态，如果这个时候有其他线程进来那么就可以直接通过原子操作获取锁了，而这个线程如果将之前被阻塞的线程唤醒，那么这个被唤醒的线程就会处于 gomp_mutex_lock_slow 最后的那个循环当中，如果这个时候 mutex 的值不等于 0 （因为有新来的线程通过原子指令将 mutex 的值由 0 变成 1 了），那么这个线程将继续阻塞，而且会将 mutex 的值设置成 -1。
 
 - 上面的锁设计加锁和解锁的交互情况是非常复杂的，因为需要确保加锁和解锁的操作不会造成死锁，大家可以使用各种顺序去想象一下代码的执行就能够发现其中的巧妙之处了。
+- 不要将获取锁和线程的唤醒关联起来，线程被唤醒不一定获得锁，而且 futex 系统调用存在虚假唤醒的可能（关于这一点可以查看 futex 的手册）
 
+## 深入分析 omp_nest_lock_t
+
+在介绍可重入锁（omp_nest_lock_t）之前，我们首先来介绍一个需求，看看之前的锁能不能够满足这个需求。
+
+```c
+
+#include <stdio.h>
+#include <omp.h>
+
+void echo(int n, omp_lock_t * lock, int * s)
+{
+   if (n > 5)
+   {
+      omp_set_lock(lock);
+      echo(n - 1, lock, s);
+      *s += 1;
+      omp_unset_lock(lock);
+   }
+   else
+   {
+      omp_set_lock(lock);
+      *s += n;
+      omp_unset_lock(lock);
+   }
+}
+
+int main()
+{
+   int n = 100;
+   int s = 0;
+   omp_lock_t lock;
+   omp_init_lock(&lock);
+   echo(n, &lock, &s);
+   printf("s = %d\n", s);
+   omp_destroy_lock(&lock);
+   return 0;
+}
+```
+
+在上面的代码当中会调用函数 `echo`，而在 `echo` 函数当中会进行递归调用，但是在递归调用之前线程已经获取锁了，如果进行递归调用的话，因为之前这个锁已经被获取了，因此如果再获取锁的话就会产生死锁，因为线程已经被获取了。
+
+如果要解决上面的问题就需要使用的可重入锁了，所谓可重入锁就是当一个线程获取锁之后，如果这个线程还想获取锁他仍然能够获取到锁，而不会产生死锁的现象。如果将上面的锁改成可重入锁 omp_nest_lock_t 那么程序就会正常执行完成，而不会产生死锁。
+
+```c
+
+#include <stdio.h>
+#include <omp.h>
+
+void echo(int n, omp_nest_lock_t* lock, int * s)
+{
+   if (n > 5)
+   {
+      omp_set_nest_lock(lock);
+      echo(n - 1, lock, s);
+      *s += 1;
+      omp_unset_nest_lock(lock);
+   }
+   else
+   {
+      omp_set_nest_lock(lock);
+      *s += n;
+      omp_unset_nest_lock(lock);
+   }
+}
+
+int main()
+{
+   int n = 100;
+   int s = 0;
+   omp_nest_lock_t lock;
+   omp_init_nest_lock(&lock);
+   echo(n, &lock, &s);
+   printf("s = %d\n", s);
+   omp_destroy_nest_lock(&lock);
+   return 0;
+}
+```
+
+## omp_nest_lock_t 源码分析
