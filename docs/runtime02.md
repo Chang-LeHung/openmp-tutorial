@@ -583,3 +583,4 @@ gomp_test_nest_lock_30 (omp_nest_lock_t *lock)
 
 ## 总结
 
+在本篇文章当中主要给大家分析了 OpenMP 当中两种主要的锁的实现，分别是 omp_lock_t 和 omp_nest_lock_t，一种是简单的锁实现，另外一种是可重入锁的实现。其实 critical 子句在 OpenMP 内部的也是利用上面的锁实现的。整个锁的实现还是非常复杂的，里面有很多耐人寻味的细节，这些代码真的很值得一读，看看能操刀 OpenMP Runtime Library 这些编程大师的作品，真的很有收获。
