@@ -273,7 +273,7 @@ gomp_test_lock_30 (omp_lock_t *lock)
 - 其实上面的锁的设计是非公平的我们可以看到在 gomp_mutex_unlock 函数当中，他是直接将 mutex 和 0 进行交换，根据前面的分析现在的锁处于一个没有线程获取的状态，如果这个时候有其他线程进来那么就可以直接通过原子操作获取锁了，而这个线程如果将之前被阻塞的线程唤醒，那么这个被唤醒的线程就会处于 gomp_mutex_lock_slow 最后的那个循环当中，如果这个时候 mutex 的值不等于 0 （因为有新来的线程通过原子指令将 mutex 的值由 0 变成 1 了），那么这个线程将继续阻塞，而且会将 mutex 的值设置成 -1。
 
 - 上面的锁设计加锁和解锁的交互情况是非常复杂的，因为需要确保加锁和解锁的操作不会造成死锁，大家可以使用各种顺序去想象一下代码的执行就能够发现其中的巧妙之处了。
-- 不要将获取锁和线程的唤醒关联起来，线程被唤醒不一定获得锁，而且 futex 系统调用存在虚假唤醒的可能（关于这一点可以查看 futex 的手册）
+- 不要将获取锁和线程的唤醒关联起来，线程被唤醒不一定获得锁，而且 futex 系统调用存在虚假唤醒的可能（关于这一点可以查看 futex 的手册）。
 
 ## 深入分析 omp_nest_lock_t
 
@@ -374,7 +374,7 @@ typedef struct {
 } omp_nest_lock_t;
 ```
 
-现在我们来仔细分析以上面的三个字段的含义：
+上面的结构体一共占 16 个字节现在我们来仔细分析以上面的三个字段的含义：
 
 - lock，这个字段和上面谈到的 omp_lock_t 是一样的作用都是占用 4 个字节，主要是用于原子操作。
 - count，在前面我们已经谈到了 omp_nest_lock_t 同一个线程在获取锁之后仍然能够获取锁，因此这个字段的含义就是表示线程获取了多少次锁。
@@ -389,7 +389,7 @@ typedef struct {
 void
 gomp_init_nest_lock_30 (omp_nest_lock_t *lock)
 {
-  // 字符 '\0' 对应的数值就是 0
+  // 字符 '\0' 对应的数值就是 0 这个就是将 lock 指向的 16 个字节全部清零
   memset (lock, '\0', sizeof (*lock));
 }
 ```
@@ -400,17 +400,26 @@ gomp_init_nest_lock_30 (omp_nest_lock_t *lock)
 void
 gomp_set_nest_lock_30 (omp_nest_lock_t *lock)
 {
+  // 首先获取当前线程的指针
   void *me = gomp_icv (true);
-
+	// 如果锁的所有者不是当前线程，那么就调用函数 gomp_mutex_lock 去获取锁
+  // 这里的 gomp_mutex_lock 函数和我们之前在 omp_lock_t 当中所分析的函数
+  // 是同一个函数
   if (lock->owner != me)
     {
       gomp_mutex_lock (&lock->lock);
+    	// 当获取锁成功之后将当前线程的所有者设置成自己
       lock->owner = me;
     }
-
+	// 因为获取锁了所以需要将当前线程获取锁的次数加一
   lock->count++;
 }
 ```
+
+在上面的程序当中主要的流程如下：
+
+- 如果当前锁的所有者是自己，也就是说如果当前线程之前已经获取到锁了，那么久直接将 count 进行加一操作。
+- 如果当线程还还没有获取到锁，那么就使用 gomp_mutex_lock 去获取锁，如果当前已经有线程获取到锁了，那么线程就会被挂起。
 
 - omp_unset_nest_lock
 
@@ -425,6 +434,8 @@ gomp_unset_nest_lock_30 (omp_nest_lock_t *lock)
     }
 }
 ```
+
+在由了 omp_lock_t 的分析基础之后上面的代码也是比较容易分析的，首先会将 count 的值减去一，如果 count 的值变成 0，那么就可以进行解锁操作，将锁的所有者变成 NULL ，然后使用 gomp_mutex_unlock 函数解锁，唤醒之前被阻塞的线程。
 
 - omp_test_nest_lock
 
@@ -451,7 +462,7 @@ gomp_test_nest_lock_30 (omp_nest_lock_t *lock)
 }
 ```
 
-
+这个不进入内核态获取锁的代码也比较容易，首先分析当前锁的拥有者是不是当前线程，如果是那么就将 count 的值加一，否则就使用原子指令看看能不能获取锁，如果能够获取锁就返回 1 ，否则就返回 0 。
 
 ## 源代码函数名称不同的原因揭秘
 
@@ -569,4 +580,6 @@ gomp_test_nest_lock_30 (omp_nest_lock_t *lock)
 }
 
 ```
+
+## 总结
 
