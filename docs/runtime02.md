@@ -337,4 +337,141 @@ int main()
 }
 ```
 
+上面的各个函数的使用方法和之前的 omp_lock_t 的使用方法是一样的：
+
+- 锁的初始化 —— init 。
+- 加锁 —— set_lock。
+- 解锁 —— unset_lock 。
+- 锁的释放 —— destroy 。
+
+我们现在来分析一下 omp_nest_lock_t 的实现原理，首先需要了解的是 omp_nest_lock_t 这个结构体一共占用 16 个字节，这 16个字节的字段如下所示：
+
+```c
+typedef struct { 
+  int lock; 
+  int count; 
+  void *owner; 
+} omp_nest_lock_t;
+```
+
+
+
 ## omp_nest_lock_t 源码分析
+
+## 源代码函数名称不同的原因揭秘
+
+在上面的源代码分析当中我们可以看到我们真正分析的代码并不是在 omp.h 的头文件当中定义的，这是因为在 OpenMP 内部做了很多的重命名处理：
+
+```c
+# define gomp_init_lock_30 omp_init_lock
+# define gomp_destroy_lock_30 omp_destroy_lock
+# define gomp_set_lock_30 omp_set_lock
+# define gomp_unset_lock_30 omp_unset_lock
+# define gomp_test_lock_30 omp_test_lock
+# define gomp_init_nest_lock_30 omp_init_nest_lock
+# define gomp_destroy_nest_lock_30 omp_destroy_nest_lock
+# define gomp_set_nest_lock_30 omp_set_nest_lock
+# define gomp_unset_nest_lock_30 omp_unset_nest_lock
+# define gomp_test_nest_lock_30 omp_test_nest_lock
+```
+
+在 OponMP 当中一个跟锁非常重要的文件就是 lock.c，现在查看一下他的源代码，你的疑惑就能够揭开了：
+
+```c
+#include <string.h>
+#include "libgomp.h"
+
+/* The internal gomp_mutex_t and the external non-recursive omp_lock_t
+   have the same form.  Re-use it.  */
+
+void
+gomp_init_lock_30 (omp_lock_t *lock)
+{
+  gomp_mutex_init (lock);
+}
+
+void
+gomp_destroy_lock_30 (omp_lock_t *lock)
+{
+  gomp_mutex_destroy (lock);
+}
+
+void
+gomp_set_lock_30 (omp_lock_t *lock)
+{
+  gomp_mutex_lock (lock);
+}
+
+void
+gomp_unset_lock_30 (omp_lock_t *lock)
+{
+  gomp_mutex_unlock (lock);
+}
+
+int
+gomp_test_lock_30 (omp_lock_t *lock)
+{
+  int oldval = 0;
+
+  return __atomic_compare_exchange_n (lock, &oldval, 1, false,
+				      MEMMODEL_ACQUIRE, MEMMODEL_RELAXED);
+}
+
+void
+gomp_init_nest_lock_30 (omp_nest_lock_t *lock)
+{
+  memset (lock, '\0', sizeof (*lock));
+}
+
+void
+gomp_destroy_nest_lock_30 (omp_nest_lock_t *lock)
+{
+}
+
+void
+gomp_set_nest_lock_30 (omp_nest_lock_t *lock)
+{
+  void *me = gomp_icv (true);
+
+  if (lock->owner != me)
+    {
+      gomp_mutex_lock (&lock->lock);
+      lock->owner = me;
+    }
+
+  lock->count++;
+}
+
+void
+gomp_unset_nest_lock_30 (omp_nest_lock_t *lock)
+{
+  if (--lock->count == 0)
+    {
+      lock->owner = NULL;
+      gomp_mutex_unlock (&lock->lock);
+    }
+}
+
+int
+gomp_test_nest_lock_30 (omp_nest_lock_t *lock)
+{
+  void *me = gomp_icv (true);
+  int oldval;
+
+  if (lock->owner == me)
+    return ++lock->count;
+
+  oldval = 0;
+  if (__atomic_compare_exchange_n (&lock->lock, &oldval, 1, false,
+				   MEMMODEL_ACQUIRE, MEMMODEL_RELAXED))
+    {
+      lock->owner = me;
+      lock->count = 1;
+      return 1;
+    }
+
+  return 0;
+}
+
+```
+

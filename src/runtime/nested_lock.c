@@ -28,5 +28,7 @@ int main()
    echo(n, &lock, &s);
    printf("s = %d\n", s);
    omp_destroy_nest_lock(&lock);
+
+   printf("%ld\n", sizeof (omp_nest_lock_t));
    return 0;
 }
