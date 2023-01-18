@@ -100,3 +100,5 @@ int main(int argc, char* argv[])
 
 上面的代码如果我们没有设置 OMP_DYNAMIC=TRUE 或者没有使用 omp_set_dynamic(1) 去启动态调整的话，那么上面的 printf 语句会被执行 33 次，但是如果你进行了设置，也就是启动了动态调整线程的个数的话，那么创建的线程个数就是 min(33, num_processors) ，后者是你的机器的处理器的个数，比如如果处理器的核的个数是 16 那么就只会有 16 个线程执行并行域当中的代码。
 
+- OMP_NESTED，这个表示是否开启并行域的嵌套模式，这个环境变量要么是 `TRUE` 或者 `FALSE` ，如果这个环境变量的值为 `TRUE` 那么能够嵌套的最大的并行域的数量受到环境变量 OMP_MAX_ACTIVE_LEVELS 的限制，与这个环境变量相关的一个动态库函数为 `void omp_set_nested(int nested);` ，表示是否开启嵌套的并行动态库。
+- OMP_NUM_THREADS，这个表示设置并行域的线程个数，与这个环境变量相关的有 num_threads 这个子句和动态库函数 `void omp_set_num_threads(int num_threads);`也是相关的。他们的优先级为：num_threads > omp_set_num_threads > OMP_NUM_THREADS。这个环境变量的值必须是一个大于 0 的整数，关于他们的优先级你可以认为离并行域越远的就优先级越低，反之越高。
