@@ -1,13 +1,12 @@
-cmake_minimum_required(VERSION 3.16.3)
+cmake_minimum_required(VERSION 2.8.12.2)
 project(openmp_tutorial)
 
 set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_C_COMPILER "/usr/bin/gcc")
+set(CMAKE_C_COMPILER "/opt/rh/devtoolset-11/root/usr/bin/gcc")
+set(CMAKE_CXX_COMPILER "/opt/rh/devtoolset-11/root/usr/bin/g++")
 set(CMAKE_BUILD_TYPE "Debug")
 
 set(CMAKE_C_FLAGS "-fopenmp -g ${CMAKE_C_FLAGS}")
-
-
 
 add_executable(active_level src/runtime/active_level.c)
 
@@ -41,3 +40,6 @@ add_executable(cancel src/environment/cancel.c)
 add_executable(device src/environment/device.c)
 add_executable(dynamic src/environment/dynamic.c)
 add_executable(dynamic01 src/environment/dynamic01.c)
+
+add_executable(omp_set_num_teams src/environment/omp_set_num_teams.c)
+add_executable(wait_policy src/environment/wait_policy.c)

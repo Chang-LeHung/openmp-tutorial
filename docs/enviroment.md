@@ -102,3 +102,72 @@ int main(int argc, char* argv[])
 
 - OMP_NESTED，这个表示是否开启并行域的嵌套模式，这个环境变量要么是 `TRUE` 或者 `FALSE` ，如果这个环境变量的值为 `TRUE` 那么能够嵌套的最大的并行域的数量受到环境变量 OMP_MAX_ACTIVE_LEVELS 的限制，与这个环境变量相关的一个动态库函数为 `void omp_set_nested(int nested);` ，表示是否开启嵌套的并行动态库。
 - OMP_NUM_THREADS，这个表示设置并行域的线程个数，与这个环境变量相关的有 num_threads 这个子句和动态库函数 `void omp_set_num_threads(int num_threads);`也是相关的。他们的优先级为：num_threads > omp_set_num_threads > OMP_NUM_THREADS。这个环境变量的值必须是一个大于 0 的整数，关于他们的优先级你可以认为离并行域越远的就优先级越低，反之越高。
+- OMP_STACKSIZE，这个环境变量的主要作用就是设置一个线程的栈空间的大小。
+- OMP_WAIT_POLICY，这个参数的主要作用就是控制当线程没有拿到锁的时候是自旋获取锁还是进入内核被挂起。这个参数主要有两个值，active 或者 passive。
+  - PASSIVE，等待的线程不消耗 CPU ，而是进入内核挂起。
+  - ACTIVE，等待的线程消耗 CPU，一直自旋获取锁。
+
+我们现在使用例子来验证上面的规则：
+
+```c
+
+#include <stdio.h>
+#include <omp.h>
+
+int main()
+{
+   omp_lock_t lock;
+   omp_init_lock(&lock);
+#pragma omp parallel num_threads(16) default(none) shared(lock)
+   {
+      omp_set_lock(&lock);
+      while (1);
+      omp_unset_lock(&lock);
+   }
+   return 0;
+}
+```
+
+在上面的代码当中有一个并行域，并行域中线程的个数是 16，我们首先使用 ACTIVE 来看一下这个进程的负载，根据前面我们的描述那么 16 个线程都会在自旋获取锁，这个过程将会一直使用 CPU，因此这个进程的负载 %CPU ，应该是接近 1600 % ，每个线程都是 100% 加起来就是 1600 % 。
+
+```shell
+➜  cmake-build-openmp export OMP_WAIT_POLICY=ACTIVE 
+➜  cmake-build-openmp ./wait_policy                
+```
+
+我们使用 top 命令查看一下这个进程的 CPU 使用率。
+
+```shell
+top - 17:27:14 up 263 days,  2:11,  2 users,  load average: 93.87, 87.59, 85.78
+Tasks:  31 total,   2 running,  29 sleeping,   0 stopped,   0 zombie
+%Cpu(s): 80.0 us,  0.7 sy,  0.0 ni, 19.2 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+KiB Mem : 13191648+total, 54673112 free, 15049648 used, 62193724 buff/cache
+KiB Swap: 12499968+total, 11869649+free,  6303184 used. 11600438+avail Mem
+
+   PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND
+112290 root      20   0  133868   1576   1452 R  1600  0.0  11:52.84 wait_policy
+```
+
+根据上面的输出结果我们可以看到我们的预测是对的，所有的线程事都活跃的在使用 CPU。
+
+现在我们再来看一下如果我们使用 PASSIVE 的情况会是怎么样的？根据前面的描述如果线程没有获取到锁那么就会被挂起，因为只能够有一个线程获取到锁，其余 15 个线程都将被挂起，因此 CPU 的使用率应该是  100 % 左右，这个线程就是那个获取到锁的线程。
+
+```shell
+➜  cmake-build-openmp export OMP_WAIT_POLICY=PASSIVE
+➜  cmake-build-openmp ./wait_policy 
+```
+
+我们再使用 top 命令查看一下对应的输出：
+
+```shell
+top - 17:27:53 up 263 days,  2:11,  2 users,  load average: 92.76, 88.10, 86.03
+Tasks:  31 total,   2 running,  29 sleeping,   0 stopped,   0 zombie
+%Cpu(s): 53.3 us,  0.8 sy,  0.0 ni, 45.9 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+KiB Mem : 13191648+total, 54675824 free, 15046932 used, 62193728 buff/cache
+KiB Swap: 12499968+total, 11869649+free,  6303184 used. 11600710+avail Mem
+
+   PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND
+112317 root      20   0  133868   1624   1496 R  99.3  0.0   0:04.58 wait_policy
+```
+
+从上面的输出结果来看也是符合我们的预期，只有一个线程在不断的使用 CPU。
