@@ -171,3 +171,17 @@ KiB Swap: 12499968+total, 11869649+free,  6303184 used. 11600710+avail Mem
 ```
 
 从上面的输出结果来看也是符合我们的预期，只有一个线程在不断的使用 CPU。
+
+- GOMP_SPINCOUNT，这个环境变量的主要作用就是当 OMP_WAIT_POLICY 是 active 的时候，最多忙等待自旋多少次，如果自旋的次数超过这个值的话，那么这个线程将会被挂起。
+
+  当这个环境变量没有定义：
+
+  - OMP_WAIT_POLICY=PASSIVE，那么自旋次数为 0 。
+  - 如果 OMP_WAIT_POLICY 也是未定义的话，那么这个自旋次数将会被设置成 300,000 。
+  - OMP_WAIT_POLICY=ACTIVE，那么自旋的次数是 300 亿次。
+
+  另外如果 OpenMP 的线程的个数大于可用的 CPU 的核心的个数的时候，1000 和 100 次就是 GOMP_SPINCOUNT 的值，对应OMP_WAIT_POLICY=ACTIVE 和 OMP_WAIT_POLICY 没有定义。
+
+- OMP_MAX_TASK_PRIORITY，这个是设置 OpenMP 任务的优先级的最大值，这个值应该是一个大雨等于 0 的值，如果没有定义，默认优先级的值就是 0 。
+
+- 
