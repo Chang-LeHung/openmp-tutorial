@@ -43,3 +43,5 @@ add_executable(dynamic01 src/environment/dynamic01.c)
 
 add_executable(omp_set_num_teams src/environment/omp_set_num_teams.c)
 add_executable(wait_policy src/environment/wait_policy.c)
+add_executable(OMP_TEAMS_THREAD_LIMIT src/environment/OMP_TEAMS_THREAD_LIMIT.c)
+add_executable(die_loop src/environment/die_loop.c)

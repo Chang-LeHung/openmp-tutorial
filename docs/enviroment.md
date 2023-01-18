@@ -184,4 +184,72 @@ KiB Swap: 12499968+total, 11869649+free,  6303184 used. 11600710+avail Mem
 
 - OMP_MAX_TASK_PRIORITY，这个是设置 OpenMP 任务的优先级的最大值，这个值应该是一个大雨等于 0 的值，如果没有定义，默认优先级的值就是 0 。
 
-- 
+- OMP_MAX_ACTIVE_LEVELS，这个参数的主要作用是设置最大的嵌套的并行域的个数。
+
+- GOMP_CPU_AFFINITY，这个环境变量的左右就是将线程绑定到特定的 CPU 核心上。该变量应包含以空格分隔或逗号分隔的CPU列表。此列表可能包含不同类型的条目：任意顺序的单个CPU编号、CPU范围（M-N）或具有一定步长的范围（M-N:S）。CPU编号从零开始。例如，GOMP_CPU_AFFINITY=“0 3 1-2 4-15:2”将分别将初始线程绑定到CPU 0，第二个绑定到CPU 3，第三个绑定到CPU1，第四个绑定到CPU 2，第五个绑定到CPU 4，第六个到第十个绑定到ccu 6、8、10、12和14，然后从列表的开头开始重新分配。GOMP_CPU_AFFINITY=0将所有线程绑定到CPU 0。
+
+我们现在来使用一个例子查看环境变量的使用。我们的测试程序如下：
+
+```c
+
+#include <stdio.h>
+#include <omp.h>
+
+int main()
+{
+   omp_lock_t lock;
+   omp_init_lock(&lock);
+#pragma omp parallel num_threads(4) default(none) shared(lock)
+   {
+      while (1);
+   }
+   return 0;
+}
+```
+
+上面的程序就是开启四个线程然后进行死循环。在我的测试环境中一共有 4 个 CPU 计算核心。我们现在执行上面的程序，对应的结果如下所示，上面的图是使用命令 htop 得到的结果：
+
+```shell
+➜  tmp ./a.out
+────────────────────────────────────────────────────────────────────────────────
+
+    0[||||||||||||||||||||||||100.0%]   Tasks: 118, 212 thr; 4 running
+    1[||||||||||||||||||||||||100.0%]   Load average: 2.62 0.86 0.29
+    2[||||||||||||||||||||||||100.0%]   Uptime: 04:21:10
+    3[||||||||||||||||||||||||100.0%]
+  Mem[||||||||||||||||||||575M/3.82G]
+  Swp[                      0K/3.82G]
+
+    PID USER      PRI  NI  VIRT   RES   SHR S CPU%▽MEM%   TIME+  Command
+  10750 lehung     20   0 27304   852   756 R 400.  0.0  2:30.53 ./a.out
+```
+
+从上面 htop 命令的输出结果可以看到 0 - 3 四个核心都跑满了，我们现在在来看一下如果我们使用 GOMP_CPU_AFFINITY 环境变量使用线程绑定的方式 CPU 的负载将会是什么样！下面我们将所有的线程绑定到 0 1 两个核心，那么根据我们之前的分析 0 号核心上将会有第一个和第三个线程，1 号核心将会有第二个和第四个线程在上面运行。
+
+```shell
+➜  tmp export GOMP_CPU_AFFINITY="0 1"
+➜  tmp ./a.out
+────────────────────────────────────────────────────────────────────────────────
+
+    0[||||||||||||||||||||||||100.0%]   Tasks: 118, 213 thr; 4 running
+    1[||||||||||||||||||||||||100.0%]   Load average: 2.29 1.10 0.41
+    2[|                         1.3%]   Uptime: 04:22:03
+    3[|                         0.7%]
+  Mem[||||||||||||||||||||576M/3.82G]
+  Swp[                      0K/3.82G]
+
+    PID USER      PRI  NI  VIRT   RES   SHR S CPU%▽MEM%   TIME+  Command
+  10772 lehung     20   0 27304   840   744 R 200.  0.0  0:10.42 ./a.out
+```
+
+其实与上面的过程相关的两个主要的系统调用就是：
+
+```c
+int sched_setaffinity(pid_t pid, size_t cpusetsize,
+                             const cpu_set_t *mask);
+int sched_getaffinity(pid_t pid, size_t cpusetsize,
+                             cpu_set_t *mask);
+```
+
+感兴趣的同学可能查看一下上面的两个函数的手册。
+
