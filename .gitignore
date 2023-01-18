@@ -4,4 +4,4 @@ cmake*/
 *vscode*/
 *build*/
 *idea*/
-*.DS*/
+*.DS*
