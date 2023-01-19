@@ -255,3 +255,13 @@ int sched_getaffinity(pid_t pid, size_t cpusetsize,
 
 - OMP_SCHEDULE，这个环境变量主要是用在 OpenMP 关于 for 循环的调度上的，他的规则为 OMP_SCHEDULE=type[,chunk]，其中 type 的取之可以为 static, dynamic, guided, auto 。并且 chunk size 是可选的，而且他的值是一个正整数。如果这个环境变量没有定义，默认的调度方式是 dynamic 并且 chunk size = 1 。
 
+## 总结
+
+在本篇文章当中主要给大家介绍了一些经常使用的 OpenMP 系统环境变量，设置环境变量有时候能够更加方便的设置程序，同时有些环境变量对应一些 OpenMP 的动态库函数。以上就是本篇文章的所有内容希望大家有所收获！
+
+---
+
+更多精彩内容合集可访问项目：<https://github.com/Chang-LeHung/CSCore>
+
+关注公众号：一无是处的研究僧，了解更多计算机（Java、Python、计算机系统基础、算法与数据结构）知识。
+
