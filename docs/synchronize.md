@@ -213,5 +213,77 @@ execution time : 5.002538
 
 可以看到的是线程 3 执行了 single 代码块但是其他的线程并没有执行，而我们也使用了 nowait  因此每个线程花费的时间会非常少，这也是符合我们的预期。
 
+### For 使用 nowait
 
+for 的原理其实和上面两个使用方式也是一样的，都是不需要在同步点进行同步，然后直接执行后面的代码。话不多说直接看代码
+
+```c
+
+
+#include <stdio.h>
+#include <omp.h>
+#include <unistd.h>
+
+int main()
+{
+   double start = omp_get_wtime();
+#pragma omp parallel num_threads(4) default(none) shared(start)
+   {
+#pragma omp for
+      for(int i = 0; i < 4; ++i)
+      {
+         sleep(i);
+      }
+      printf("tid = %d spent %lf s\n", omp_get_thread_num(), omp_get_wtime() - start);
+   }
+   double end = omp_get_wtime();
+   printf("execution time : %lf", end - start);
+   return 0;
+}
+```
+
+在上面的程序当中启动的一个 for 循环，有四个线程去执行这个循环，按照默认的调度方式第 i 个线程对应的 i 的值就是等于 i 也就是说，最长的一个线程 sleep 的时间为 3 秒，但是  sleep 1 秒或者 2 秒和 3 秒的线程需要进行等待，因此上面的程序的输出结果大概都是 3 秒左右。具体的结果如下图所示：
+
+```shell
+tid = 0 spent 3.003546 s
+tid = 1 spent 3.003549 s
+tid = 2 spent 3.003558 s
+tid = 3 spent 3.003584 s
+execution time : 3.005994
+```
+
+现在如果我们使用 mowait 那么线程不需要进行等待，那么线程的话费时间大概是 0 秒 1 秒 2 秒 3 秒。
+
+```c
+#include <stdio.h>
+#include <omp.h>
+#include <unistd.h>
+
+int main()
+{
+   double start = omp_get_wtime();
+#pragma omp parallel num_threads(4) default(none) shared(start)
+   {
+#pragma omp for nowait
+      for(int i = 0; i < 4; ++i)
+      {
+         sleep(i);
+      }
+      printf("tid = %d spent %lf s\n", omp_get_thread_num(), omp_get_wtime() - start);
+   }
+   double end = omp_get_wtime();
+   printf("execution time : %lf", end - start);
+   return 0;
+}
+```
+
+查看下面的结果，也是符号我们的预期的，因为线程之间不需要进行等待了。
+
+```shell
+tid = 0 spent 0.002358 s
+tid = 1 spent 1.004497 s
+tid = 2 spent 2.002433 s
+tid = 3 spent 3.002427 s
+execution time : 3.002494
+```
 
