@@ -4,8 +4,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
-int main()
-{
+int main() {
 #pragma omp parallel num_threads(4) default(none)
    {
 #pragma omp sections
