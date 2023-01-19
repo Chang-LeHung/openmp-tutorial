@@ -10,3 +10,100 @@
 
 ## OpenMP 中的事件同步机制
 
+在这一小节当中主要分析 OpenMP 当中的一些构造语句中的同步关系—— single, sections, for ，并且消除这些指令造成的线程之间的同步。
+
+
+
+```c
+
+
+#include <omp.h>
+#include <stdio.h>
+#include <unistd.h>
+
+int main()
+{
+#pragma omp parallel num_threads(4) default(none)
+   {
+#pragma omp sections nowait
+      {
+#pragma omp section
+         {
+            int s = omp_get_thread_num() + 1;
+            sleep(s);
+            printf("tid = %d sleep %d seconds\n", s, s);
+         }
+#pragma omp section
+         {
+            int s = omp_get_thread_num() + 1;
+            sleep(s);
+            printf("tid = %d sleep %d seconds\n", s, s);
+         }
+#pragma omp section
+         {
+            int s = omp_get_thread_num() + 1;
+            sleep(s);
+            printf("tid = %d sleep %d seconds\n", s, s);
+         }
+#pragma omp section
+         {
+            int s = omp_get_thread_num() + 1;
+            sleep(s);
+            printf("tid = %d sleep %d seconds\n", s, s);
+         }
+      }
+
+      printf("tid = %d finish sections\n", omp_get_thread_num());
+   }
+   return 0;
+}
+
+```
+
+
+
+```c
+
+
+#include <omp.h>
+#include <stdio.h>
+#include <unistd.h>
+
+int main()
+{
+#pragma omp parallel num_threads(4) default(none)
+   {
+#pragma omp sections
+      {
+#pragma omp section
+         {
+            int s = omp_get_thread_num() + 1;
+            sleep(s);
+            printf("tid = %d sleep %d seconds\n", s, s);
+         }
+#pragma omp section
+         {
+            int s = omp_get_thread_num() + 1;
+            sleep(s);
+            printf("tid = %d sleep %d seconds\n", s, s);
+         }
+#pragma omp section
+         {
+            int s = omp_get_thread_num() + 1;
+            sleep(s);
+            printf("tid = %d sleep %d seconds\n", s, s);
+         }
+#pragma omp section
+         {
+            int s = omp_get_thread_num() + 1;
+            sleep(s);
+            printf("tid = %d sleep %d seconds\n", s, s);
+         }
+      }
+
+      printf("tid = %d finish sections\n", omp_get_thread_num());
+   }
+   return 0;
+}
+```
+
