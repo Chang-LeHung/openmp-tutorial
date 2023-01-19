@@ -137,4 +137,81 @@ tid = 4 sleep 4 seconds
 tid = 3 finish sections
 ```
 
-从上面的输出结果我们可以看到，当一个线程的 section 代码执行完成之后
+从上面的输出结果我们可以看到，当一个线程的 section 代码执行完成之后，这个线程就立即执行最后的 printf 语句了，也就是说执行完成之后并没有等待其他的线程，这就是我们想要的效果。
+
+### Single 使用 nowait
+
+在 OpenMP 当中使用 single 指令表示只有一个线程执行 single 当中的代码，但是需要了解的是在 single 代码块最后 OpenMP 也会帮我们生成一个隐藏的同步点，只有执行 single 代码块的线程执行完成之后，所有的线程才能够继续往后执行。比如下面的示例程序：
+
+```c
+
+
+#include <stdio.h>
+#include <omp.h>
+#include <unistd.h>
+
+int main()
+{
+   double start = omp_get_wtime();
+#pragma omp parallel num_threads(4) default(none) shared(start)
+   {
+#pragma omp single
+      sleep(5);
+      printf("tid = %d spent %lf s\n", omp_get_thread_num(), omp_get_wtime() - start);
+   }
+   double end = omp_get_wtime();
+   printf("execution time : %lf", end - start);
+   return 0;
+}
+```
+
+在上面的代码当中启动了 4 个线程，在 single 的代码块当中需要 sleep 5秒钟，因为上面的代码不带 nowait，因此虽然之后一个线程执行 sleep(5)，但是因为其他的线程需要等待这个线程执行完成，因此所有的线程都需要等待 5 秒。因此可以判断上面的代码输出就是每个线程输出的时间差都是 5 秒左右。具体的上面的代码执行结果如下所示：
+
+```shell
+tid = 2 spent 5.002628 s
+tid = 3 spent 5.002631 s
+tid = 0 spent 5.002628 s
+tid = 1 spent 5.005032 s
+execution time : 5.005076
+```
+
+从上面的输出结果来看正符合我们的预期，每个线程花费的时间都是 5 秒左右。
+
+现在我们使用 nowait 那么当一个线程执行 single 代码块的时候，其他线程就不需要进行等待了，那么每个线程花费的时间就非常少。我们看下面的使用 nowait 的程序的输出结果：
+
+```c
+
+
+#include <stdio.h>
+#include <omp.h>
+#include <unistd.h>
+
+int main()
+{
+   double start = omp_get_wtime();
+#pragma omp parallel num_threads(4) default(none) shared(start)
+   {
+#pragma omp single nowait
+      sleep(5);
+      printf("tid = %d spent %lf s\n", omp_get_thread_num(), omp_get_wtime() - start);
+   }
+   double end = omp_get_wtime();
+   printf("execution time : %lf", end - start);
+   return 0;
+}
+```
+
+上面的代码执行结果如下所示：
+
+```shell
+tid = 2 spent 0.002375 s
+tid = 0 spent 0.003188 s
+tid = 1 spent 0.003202 s
+tid = 3 spent 5.002462 s
+execution time : 5.002538
+```
+
+可以看到的是线程 3 执行了 single 代码块但是其他的线程并没有执行，而我们也使用了 nowait  因此每个线程花费的时间会非常少，这也是符合我们的预期。
+
+
+
