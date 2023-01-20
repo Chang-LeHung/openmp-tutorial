@@ -252,7 +252,7 @@ tid = 3 spent 3.003584 s
 execution time : 3.005994
 ```
 
-现在如果我们使用 mowait 那么线程不需要进行等待，那么线程的话费时间大概是 0 秒 1 秒 2 秒 3 秒。
+现在如果我们使用 nowait 那么线程不需要进行等待，那么线程的话费时间大概是 0 秒 1 秒 2 秒 3 秒。
 
 ```c
 #include <stdio.h>
@@ -368,6 +368,141 @@ int main() {
 在上面的 critical 构造当中我们执行了 data ++ 这条语句，如果我们不使用 critical construct 的话，那么就可能两个线程同时操作 data++ 这条语句，那么就会造成结果的不正确性，因为如果两个线程同时读取 data 的值等于 0，然后两个线程同时进行++操作让 data 的值都变成 1，再写回，那么 data 的最终结果将会是 1，但是我们期望的结果是两个线程进行相加操作之后值变成 2，这就不对了，因此我们需要使用 critical construct 保证同一时刻只能够有一个线程进行 data++ 操作。
 
 我们知道临界区的实现是使用锁实现的，当我们使用 `#pragma omp critical` 的时候，我们默认是使用的 OpenMP 内部的默认锁实现的，如果你在其他地方也使用 `#pragma omp critical` 的话使用的也是同一把锁，因此即使你用 `#pragma omp critical` 创建多个临界区你使用的也是同一把锁，也就是说这多个临界区在同一时刻也只会有一个线程在一个临界区执行，其余的临界区是没有线程在执行的，因为所有的临界区使用同一把锁，而一个时刻只能够有一个线程获得锁。
+
+为了解决上面所谈到的问题，在 OpenMP 当中使用 critical 构造代码块的时候我们可以指定一个名字，以此用不同的锁在不同的临界区。
+
+我们现在对上面的情况进行验证，在下面的程序当中一共有 4 个 section ，首先我们需要知道的是不同的 section 同一个时刻可以被不同的线程执行的，每一个线程只会被执行一次，如果有线程执行过了，那么它将不会再被执行。
+
+```c
+
+#include <stdio.h>
+#include <omp.h>
+#include <unistd.h>
+
+int main()
+{
+
+#pragma omp parallel num_threads(4) default(none)
+   {
+#pragma omp sections
+      {
+#pragma omp section
+         {
+#pragma omp critical
+            {
+               printf("tid = %d time stamp = %lf\n", omp_get_thread_num(), omp_get_wtime());
+               sleep(2);
+            }
+         }
+
+#pragma omp section
+         {
+#pragma omp critical
+            {
+               printf("tid = %d time stamp = %lf\n", omp_get_thread_num(), omp_get_wtime());
+               sleep(2);
+            }
+         }
+
+#pragma omp section
+         {
+#pragma omp critical
+            {
+               printf("tid = %d time stamp = %lf\n", omp_get_thread_num(), omp_get_wtime());
+               sleep(2);
+            }
+         }
+
+#pragma omp section
+         {
+#pragma omp critical
+            {
+               printf("tid = %d time stamp = %lf\n", omp_get_thread_num(), omp_get_wtime());
+               sleep(2);
+            }
+         }
+      }
+   }
+   return 0;
+}
+```
+
+上面的程序输出结果如下所示：
+
+```shell
+tid = 3 time stamp = 22875738.972305
+tid = 0 time stamp = 22875740.972508
+tid = 2 time stamp = 22875742.974888
+tid = 1 time stamp = 22875744.975045
+```
+
+从上面程序的输出结果我们可以知道，每一次程序的输出都间隔了 2 秒，这就说明了，所有的打印都是在等之前的线程执行完成之后才执行的，这也就从侧面说明了，同一个时刻只能够有一个线程获取到锁，因为使用的是 `#pragma omp critical` 所有的临界区都是用同一个锁——默认锁。
+
+现在我们修改上面的程序，每一个 critical construct 都使用一个名字进行修饰，让每一个临界区使用的锁不同：
+
+```c
+
+#include <stdio.h>
+#include <omp.h>
+#include <unistd.h>
+
+int main()
+{
+
+#pragma omp parallel num_threads(4) default(none)
+   {
+#pragma omp sections
+      {
+#pragma omp section
+         {
+#pragma omp critical(A)
+            {
+               printf("tid = %d time stamp = %lf\n", omp_get_thread_num(), omp_get_wtime());
+               sleep(2);
+            }
+         }
+#pragma omp section
+         {
+#pragma omp critical(B)
+            {
+               printf("tid = %d time stamp = %lf\n", omp_get_thread_num(), omp_get_wtime());
+               sleep(2);
+            }
+         }
+
+#pragma omp section
+         {
+#pragma omp critical(C)
+            {
+               printf("tid = %d time stamp = %lf\n", omp_get_thread_num(), omp_get_wtime());
+               sleep(2);
+            }
+         }
+
+#pragma omp section
+         {
+#pragma omp critical(D)
+            {
+               printf("tid = %d time stamp = %lf\n", omp_get_thread_num(), omp_get_wtime());
+               sleep(2);
+            }
+         }
+      }
+   }
+   return 0;
+}
+```
+
+上面的程序的输出结果如下所示：
+
+```shell
+tid = 1 time stamp = 22876121.253737
+tid = 3 time stamp = 22876121.253737
+tid = 0 time stamp = 22876121.253737
+tid = 2 time stamp = 22876121.253754
+```
+
+从上面程序的输出结果来看，几乎在同一个时刻所有的 printf 语句被执行。也就是说这些临界区之间并不互斥，这也就说名了不同的临界区使用的锁是不同的。
 
 ## 深入理解 barrier
 
