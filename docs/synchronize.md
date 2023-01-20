@@ -1,4 +1,4 @@
-# 深入理解 OpenMP 同步机制
+# 深入理解 OpenMP 线程同步机制
 ## 前言
 在本篇文章当中主要给大家介绍 OpenMP 当中线程的同步和互斥机制，在 OpenMP 当中主要有三种不同的线程之间的互斥方式：
 
@@ -318,6 +318,45 @@ Out master construct tid = 0 timestamp = 22892757.871614
 从上面的输出结果我们可以看到，非 master 线程的时间戳几乎是一样的也就是说他们几乎是同时运行的，而 master 线程则是 sleep 1 秒之后才进行输出的，而且 master 中的语句只有 master 线程执行，这也就印证了我们所谈到的内容。
 
 ## single construct
+
+在使用 OpenMP 的时候，可能会有一部分代码我们只需要一个线程去执行，这个时候我们可以时候 single 指令，single 代码块只会有一个线程执行，并且在 single 代码块最后会有一个同步点，只有 single 代码块执行完成之后，所有的线程才会继续往后执行。我们现在来分析一下下面的程序：
+
+```c
+
+
+#include <stdio.h>
+#include <omp.h>
+#include <unistd.h>
+
+int main()
+{
+#pragma omp parallel num_threads(4) default(none)
+  {
+    double start = omp_get_wtime();
+#pragma omp single
+    {
+      printf("In single tid = %d ", omp_get_thread_num());
+      sleep(5);
+      printf("cost time = %lf\n", omp_get_wtime() - start);
+    }
+
+    printf("Out single tid = %d cost time = %lf\n", omp_get_thread_num(), omp_get_wtime() - start);
+  }
+  return 0;
+}
+```
+
+上面的程序的输出结果如下所示：
+
+```shell
+In single tid = 3 cost time = 5.000174
+Out single tid = 3 cost time = 5.000229
+Out single tid = 0 cost time = 5.000223
+Out single tid = 2 cost time = 5.002116
+Out single tid = 1 cost time = 5.002282
+```
+
+从上面的程序的输出结果我们可以看到，所有的打印语句输出的时候和 start 都相差了差不多 5 秒钟的时间，这主要是因为在 single 代码块当中线程 sleep 了 5 秒中。虽然只有一个线程执行 single 代码块，但是我们可以看到所有的线程都话费了 5 秒钟，这正是因为在 single 代码块之后会有一个隐藏的同步点，只有并行域中所有的代码到达同步点之后，线程才能够继续往后执行。
 
 ## ordered construct
 
