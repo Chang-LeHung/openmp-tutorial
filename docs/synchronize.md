@@ -551,5 +551,5 @@ after barrier : parent_id = 1 tid = 0
 after barrier : parent_id = 1 tid = 1
 ```
 
-![](../images/05.svg)
+![](../images/06.png)
 
