@@ -230,3 +230,46 @@ int main()
 
 通过理解上面的指令，在 cmpxchg 指令之后的就是查看是否 esi 寄存器的值写入到了 rcx 寄存器指向的内存地址，如果是则不执行跳转语句，否则指令回到位置 4011a6 重新执行，这就是一个 while 循环。
 
+我们在来看一下将乘法变成除法之后的汇编指令：
+
+```asm
+0000000000401193 <main._omp_fn.0>:
+  401193:       55                      push   %rbp
+  401194:       48 89 e5                mov    %rsp,%rbp
+  401197:       48 89 7d f8             mov    %rdi,-0x8(%rbp)
+  40119b:       48 8b 45 f8             mov    -0x8(%rbp),%rax
+  40119f:       48 8b 08                mov    (%rax),%rcx
+  4011a2:       8b 01                   mov    (%rcx),%eax
+  4011a4:       89 c2                   mov    %eax,%edx
+  4011a6:       89 d0                   mov    %edx,%eax
+  4011a8:       c1 e8 1f                shr    $0x1f,%eax
+  4011ab:       01 d0                   add    %edx,%eax
+  4011ad:       d1 f8                   sar    %eax
+  4011af:       89 c6                   mov    %eax,%esi
+  4011b1:       89 d0                   mov    %edx,%eax
+  4011b3:       f0 0f b1 31             lock cmpxchg %esi,(%rcx)
+  4011b7:       89 d6                   mov    %edx,%esi
+  4011b9:       89 c2                   mov    %eax,%edx
+  4011bb:       39 f0                   cmp    %esi,%eax
+  4011bd:       75 e7                   jne    4011a6 <main._omp_fn.0+0x13>
+  4011bf:       5d                      pop    %rbp
+  4011c0:       c3                      retq   
+  4011c1:       66 2e 0f 1f 84 00 00    nopw   %cs:0x0(%rax,%rax,1)
+  4011c8:       00 00 00 
+  4011cb:       0f 1f 44 00 00          nopl   0x0(%rax,%rax,1)
+```
+
+从上面的汇编代码当中的 cmpxchg 和 jne 指令可以看出除法操作使用的还是比较并交换指令(CAS) cmpxchg，并且也是使用 while 循环。
+
+其实复杂的表达式都是使用这个方式实现的：while 循环 + cmpxchg 指令，我们就不一一的将其他的使用方式也拿出来一一解释了。简单的表达式可以直接使用 lock + 具体的指令实现。
+
+## 总结
+
+在本篇文章当中主要是深入剖析了 OpenMP 当中各种原子指令的实现原理以及分析了他们对应的汇编程序，OpenMP 在处理 #pragma omp atomic 的时候如果能够使用原子指令完成需求那就直接使用原子指令，否则的话就使用 CAS cmpxchg 指令和 while 循环完成对应的需求。
+
+---
+
+更多精彩内容合集可访问项目：<https://github.com/Chang-LeHung/CSCore>
+
+关注公众号：一无是处的研究僧，了解更多计算机（Java、Python、计算机系统基础、算法与数据结构）知识。
+
