@@ -78,6 +78,8 @@ OpenMP 中的 atomic 指令允许执行无锁操作，而不会影响其他线�
 
 ## 深入剖析原子指令——从汇编角度
 
+### 加法和减法原子操作
+
 我们现在来仔细分析一下下面的代码的汇编指令，看看编译器在背后为我们做了些什么：
 
 ```c
@@ -113,4 +115,80 @@ int main()
   4011a8:       0f 1f 84 00 00 00 00    nopl   0x0(%rax,%rax,1)
   4011af:       00 
 ```
+
+在上面的汇编代码当中最终的一条指令就是 `lock addl $0x1,(%rax)`，这条指令便是编译器在编译 `#pragma omp atomic` 的时候将 `data += 1` 转化成硬件的对应的指令。我们可以注意到和普通的加法指令的区别就是这条指令前面有一个 lock ，这是告诉硬件在指令 lock 后面的指令的时候需要保证指令的原子性。
+
+以上就是在 x86 平台下加法操作对应的原子指令。我们现在将上面的 data += 1，改成 data -= 1，在来看一下它对应的汇编程序：
+
+```asm
+0000000000401193 <main._omp_fn.0>:
+  401193:       55                      push   %rbp
+  401194:       48 89 e5                mov    %rsp,%rbp
+  401197:       48 89 7d f8             mov    %rdi,-0x8(%rbp)
+  40119b:       48 8b 45 f8             mov    -0x8(%rbp),%rax
+  40119f:       48 8b 00                mov    (%rax),%rax
+  4011a2:       f0 83 28 01             lock subl $0x1,(%rax)
+  4011a6:       5d                      pop    %rbp
+  4011a7:       c3                      retq   
+  4011a8:       0f 1f 84 00 00 00 00    nopl   0x0(%rax,%rax,1)
+  4011af:       00 
+```
+
+可以看到它和加法指令的主要区别就是 addl 和 subl，其他的程序是一样的。
+
+### 乘法和除法原子操作
+
+我们现在将下面的程序进行编译：
+
+```c
+
+
+#include <stdio.h>
+#include <omp.h>
+
+int main()
+{
+  int data = 1;
+#pragma omp parallel num_threads(4) shared(data) default(none)
+  {
+#pragma omp atomic
+    data *= 2;
+  }
+  printf("data = %d\n", data);
+  return 0;
+}
+```
+
+上面代码的并行域被编译之后的汇编程序如下所示：
+
+```asm
+0000000000401193 <main._omp_fn.0>:
+  401193:       55                      push   %rbp
+  401194:       48 89 e5                mov    %rsp,%rbp
+  401197:       48 89 7d f8             mov    %rdi,-0x8(%rbp)
+  40119b:       48 8b 45 f8             mov    -0x8(%rbp),%rax
+  40119f:       48 8b 08                mov    (%rax),%rcx
+  4011a2:       8b 01                   mov    (%rcx),%eax
+  4011a4:       89 c2                   mov    %eax,%edx
+  4011a6:       8d 34 12                lea    (%rdx,%rdx,1),%esi # 这条语句的含义为 data *= 2
+  4011a9:       89 d0                   mov    %edx,%eax
+  4011ab:       f0 0f b1 31             lock cmpxchg %esi,(%rcx)
+  4011af:       89 d6                   mov    %edx,%esi
+  4011b1:       89 c2                   mov    %eax,%edx
+  4011b3:       39 f0                   cmp    %esi,%eax
+  4011b5:       75 ef                   jne    4011a6 <main._omp_fn.0+0x13>
+  4011b7:       5d                      pop    %rbp
+  4011b8:       c3                      retq   
+  4011b9:       0f 1f 80 00 00 00 00    nopl   0x0(%rax)
+```
+
+我们先不仔细去讨论上面的汇编程序的行为，我们先来看一下上面程序的行为：
+
+- 首先加载 data 的值，保存为 temp，这个 temp 的值保存在寄存器当中。
+- 然后将 temp 的值乘以 2 保存在寄存器当中。
+- 最后比较 temp 的值是否等于 data，如果等于那么就将 data 的值变成 temp ，如果不相等（也就是说有其他线程更改了 data 的值，此时不能赋值给 data）回到第一步。
+
+上面的三个步骤当中第三步是一个原子操作对应上面的汇编指令 `lock cmpxchg %esi,(%rcx)` ，cmpxchg 指令前面加了 lock 主要是保存这条 cmpxchg 指令的原子性。
+
+上面的最核心的指令就是 `lock cmpxchg %esi,(%rcx)`，这是一条比较并交换的指令。
 
