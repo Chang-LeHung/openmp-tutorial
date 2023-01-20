@@ -340,6 +340,33 @@ int main()
 
 ## 定义临界区 critical
 
+在并发程序当中我们经常会有这样的需求，比如不同的线程需要对同一个数据进行求和操作，当然这个操作我们也可以通过 atomic constuct 来完成，但是在本篇文章当中我们使用临界区来完成，在下一篇完成当中我们将仔细分析 OpenMP 当中的原子操作。
+
+比如我们现在有一个数据 data，然后每个线程需要对这个数据进行加操作。
+
+```c
+
+
+#include <stdio.h>
+#include <omp.h>
+#include <unistd.h>
+
+int main() {
+   int data = 0;
+#pragma omp parallel num_threads(10) shared(data) default(none)
+   {
+#pragma omp critical
+      {
+         data++;
+      }
+   }
+   printf("data = %d\n", data);
+   return 0;
+}
+```
+
+在上面的 critical 构造当中我们执行了 data ++ 这条语句，如果我们不使用 critical construct 的话，那么就可能两个线程同时操作 data++ 这条语句，那么就会造成结果的不正确性，因为如果两个线程同时读取 data 的值等于 0，然后两个线程同时进行++操作让 data 的值都变成 1，再写回，那么 data 的最终结果将会是 1，但是我们期望的结果是两个线程进行相加操作之后值变成 2，这就不对了，因此我们需要使用 critical construct 保证同一时刻只能够有一个线程进行 data++ 操作。
+
 ## 深入理解 barrier
 
 需要注意的是每隔一并行域的线程组都有自己线程组内部的一个 barrier 变量
