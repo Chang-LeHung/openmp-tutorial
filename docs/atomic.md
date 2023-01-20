@@ -186,7 +186,7 @@ int main()
 
 - 首先加载 data 的值，保存为 temp，这个 temp 的值保存在寄存器当中。
 - 然后将 temp 的值乘以 2 保存在寄存器当中。
-- 最后比较 temp 的值是否等于 data，如果等于那么就将 data 的值变成 temp ，如果不相等（也就是说有其他线程更改了 data 的值，此时不能赋值给 data）回到第一步。
+- 最后比较 temp 的值是否等于 data，如果等于那么就将 data 的值变成 temp ，如果不相等（也就是说有其他线程更改了 data 的值，此时不能赋值给 data）回到第一步，这个操作主要是基于指令 `cmpxchg` 。
 
 上面的三个步骤当中第三步是一个原子操作对应上面的汇编指令 `lock cmpxchg %esi,(%rcx)` ，cmpxchg 指令前面加了 lock 主要是保存这条 cmpxchg 指令的原子性。
 
@@ -204,8 +204,15 @@ void atomic_multiply(int* data)
 {
   int oldval = *data;
   int write = oldval * 2;
+  // __atomic_compare_exchange_n 这个函数的作用就是
+  // 将 data 指向的值和 old 的值进行比较，如果相等就将 write 的值写入 data
+  // 指向的内存地址 如果操作成功返回 true 否则返回 false
   while (__atomic_compare_exchange_n (data, &oldval, write, false,
-                                      __ATOMIC_ACQUIRE, __ATOMIC_RELAXED));
+                                      __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+  {
+    oldval = *data;
+    write = oldval * 2;
+  }
 }
 
 int main()
