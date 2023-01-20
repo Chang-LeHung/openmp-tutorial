@@ -506,7 +506,7 @@ tid = 2 time stamp = 22876121.253754
 
 ## 深入理解 barrier
 
-需要注意的是每隔一并行域的线程组都有自己线程组内部的一个 barrier 变量
+在上一小节当中我们提到了 critical 可以使用一个名字进行命名，那么就可以使得不同的临界区使用不同的锁，这样可以提高程序的执行效率。那么在 OpenMP 当中是否共享 barrier ，我们在前面介绍了 `#pragma omp barrier` 是否是全局所有的线程共享使用的呢？答案是不共享，因此 barrier 不需要指定名字，我们在使用 barrier 的时候每个并行域的线程组都有一个自己的 barrier 。我们可以通过下面的程序进行分析。
 
 ```c
 
@@ -550,4 +550,6 @@ parent_id = 1 tid = 1
 after barrier : parent_id = 1 tid = 0
 after barrier : parent_id = 1 tid = 1
 ```
+
+![](../images/05.svg)
 
