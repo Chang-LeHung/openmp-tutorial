@@ -182,7 +182,7 @@ int main()
   4011b9:       0f 1f 80 00 00 00 00    nopl   0x0(%rax)
 ```
 
-我们先不仔细去讨论上面的汇编程序的行为，我们先来看一下上面程序的行为：
+我们先不仔细去分析上面的汇编程序，我们先来看一下上面程序的行为：
 
 - 首先加载 data 的值，保存为 temp，这个 temp 的值保存在寄存器当中。
 - 然后将 temp 的值乘以 2 保存在寄存器当中。
@@ -190,5 +190,30 @@ int main()
 
 上面的三个步骤当中第三步是一个原子操作对应上面的汇编指令 `lock cmpxchg %esi,(%rcx)` ，cmpxchg 指令前面加了 lock 主要是保存这条 cmpxchg 指令的原子性。
 
-上面的最核心的指令就是 `lock cmpxchg %esi,(%rcx)`，这是一条比较并交换的指令。
+如果我们将上面的汇编程序使用 C 语言重写的话，那么就是下面的程序那样：
+
+```c
+
+
+#include <stdio.h>
+#include <stdbool.h>
+#include <stdatomic.h>
+
+// 这个函数对应上面的汇编程序
+void atomic_multiply(int* data)
+{
+  int oldval = *data;
+  int write = oldval * 2;
+  while (__atomic_compare_exchange_n (data, &oldval, write, false,
+                                      __ATOMIC_ACQUIRE, __ATOMIC_RELAXED));
+}
+
+int main()
+{
+  int data = 2;
+  atomic_multiply(&data);
+  printf("data = %d\n", data);
+  return 0;
+}
+```
 
