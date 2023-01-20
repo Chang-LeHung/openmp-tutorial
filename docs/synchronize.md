@@ -360,7 +360,40 @@ Out single tid = 1 cost time = 5.002282
 
 ## ordered construct
 
-## OpenMP 中的事件同步机制
+odered 指令主要是用于 for 循环当中的代码块必须按照循环的迭代次序来执行。因为在循环当中有些区域是可以并行处理的，但是我们的业务需要在某些代码串行执行（这里所谈到的串行执行的意思是按照循环的迭代次序，比如说 for(int i = 0; i < 10; ++i) 这个次序就是必须按照 i 从 0 到 9 的次序执行代码），这样才能够保证逻辑上的正确性。
+
+比如下面的例子：
+
+```c
+
+#include <stdio.h>
+#include <omp.h>
+
+int main()
+{
+
+#pragma omp parallel num_threads(4) default(none)
+  {
+#pragma omp for ordered
+    for(int i = 0; i < 8; ++i)
+    {
+#pragma omp ordered
+      printf("i = %d ", i);
+    }
+  }
+  return 0;
+}
+```
+
+上面的程序的输出结果如下所示：
+
+```shell
+i = 0 i = 1 i = 2 i = 3 i = 4 i = 5 i = 6 i = 7 
+```
+
+上面的程序的输出结果一定是上面的样子，绝对不会发生任何顺序上的变化，这正是因为 ordered 的效果，他保证了线程的执行顺序必须按照循环迭代次序来。
+
+## OpenMP 中的线程同步机制
 
 在这一小节当中主要分析 OpenMP 当中的一些构造语句中的同步关系—— single, sections, for ，并且消除这些指令造成的线程之间的同步。
 
