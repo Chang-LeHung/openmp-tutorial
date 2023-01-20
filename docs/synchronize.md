@@ -287,3 +287,103 @@ tid = 3 spent 3.002427 s
 execution time : 3.002494
 ```
 
+## 自定义线程之间的同步 barrier
+
+在实际的写程序的过程当中我们可能会有一种需求就是需要等待所有的线程都执行完成之才能够进行后面的操作，这个时候我们就可以自己使用 barrier 来实现这个需求了。
+
+比如我们要实现下面的一个计算式：
+$$
+data = \frac{1! + 2! + ... + n!}{n}
+$$
+现在我们计算 n = 16 的时候上面的表达式的值：
+
+```c
+
+
+#include <stdio.h>
+#include <omp.h>
+
+int factorial(int n)
+{
+   int s = 1;
+   for(int i = 1; i <= n; ++i)
+   {
+      s *= i;
+   }
+   return s;
+}
+
+int main()
+{
+   int data[16];
+#pragma omp parallel num_threads(16) default(none) shared(data)
+   {
+      int id = omp_get_thread_num();
+      data[id] = factorial(id + 1);
+      // 等待上面所有的线程都完成的阶乘的计算
+#pragma omp barrier
+      long sum = 0;
+#pragma omp single
+      {
+         for(int i = 0; i < 16; ++i)
+         {
+            sum += data[i];
+         }
+         printf("final value = %lf\n", (double) sum / 16);
+      }
+   }
+   return 0;
+}
+```
+
+在上面的代码当中我们首先让 16 个线程都计算完成对应的阶乘结果之后然后在求和进行除法操作，因此在进行除法操作之前就需要将所有的阶乘计算完成，在这里我们就可以使用 `#pragma omp barrier` 让所有的线程到达这个同步点之后才继续完成后执行，这样就保证了在进行后面的任务的时候所有线程计算阶乘的任务已经完成。
+
+## 定义临界区 critical
+
+## 深入理解 barrier
+
+需要注意的是每隔一并行域的线程组都有自己线程组内部的一个 barrier 变量
+
+```c
+
+
+#include <stdio.h>
+#include <omp.h>
+#include <unistd.h>
+
+int main()
+{
+   omp_set_nested(1);
+#pragma omp parallel num_threads(2) default(none)
+   {
+      int parent_id = omp_get_thread_num();
+      printf("tid = %d\n", parent_id);
+      sleep(1);
+#pragma omp barrier
+#pragma omp parallel num_threads(2) shared(parent_id) default(none)
+      {
+         sleep(parent_id + 1);
+         printf("parent_id = %d tid = %d\n", parent_id, omp_get_thread_num());
+#pragma omp barrier
+         printf("after barrier : parent_id = %d tid = %d\n", parent_id, omp_get_thread_num());
+      }
+   }
+   return 0;
+}
+```
+
+上面的程序其中的一个输出如下所示：
+
+```c
+tid = 0
+tid = 1
+parent_id = 0 tid = 0
+parent_id = 0 tid = 1
+after barrier : parent_id = 0 tid = 0
+after barrier : parent_id = 0 tid = 1
+parent_id = 1 tid = 0
+parent_id = 1 tid = 1
+after barrier : parent_id = 1 tid = 0
+after barrier : parent_id = 1 tid = 1
+```
+
