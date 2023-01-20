@@ -207,7 +207,7 @@ void atomic_multiply(int* data)
   // __atomic_compare_exchange_n 这个函数的作用就是
   // 将 data 指向的值和 old 的值进行比较，如果相等就将 write 的值写入 data
   // 指向的内存地址 如果操作成功返回 true 否则返回 false
-  while (__atomic_compare_exchange_n (data, &oldval, write, false,
+  while (!__atomic_compare_exchange_n (data, &oldval, write, false,
                                       __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
   {
     oldval = *data;
