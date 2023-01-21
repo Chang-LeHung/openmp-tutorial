@@ -6,3 +6,4 @@ openmp tutorial series
 - [OpenMP 环境变量使用总结](./docs/enviroment.md)
 - [深入理解 OpenMP 线程同步机制](./docs/synchronize.md)
 - [OpenMP 原子指令设计与实现](./docs/atomic.md)
+- [深入剖析 OpenMP 线程绑定与 NUMA 架构](./docs/numa.md)
