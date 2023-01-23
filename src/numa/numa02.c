@@ -33,7 +33,7 @@ int main()
     sprintf(msg, "Thread[%d/%d]hostname = %s cpuid = %d nodeid = %d\n", tid, nThreads , s, cpuid, nodeid);
     messages[tid] = msg;
     int data = 0;
-    while (data > 800000000)
+    while (data > 2000000000)
       data++;
   }
   for(int i = 0; i < nThreads; ++i)
