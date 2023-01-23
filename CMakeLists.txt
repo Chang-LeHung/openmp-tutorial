@@ -3,6 +3,7 @@ project(openmp_tutorial)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_C_COMPILER "/opt/rh/devtoolset-11/root/usr/bin/gcc")
+#set(CMAKE_C_COMPILER "/opt/rh/devtoolset-11/root/usr/bin/gcc")
 set(CMAKE_CXX_COMPILER "/opt/rh/devtoolset-11/root/usr/bin/g++")
 set(CMAKE_BUILD_TYPE "Debug")
 
