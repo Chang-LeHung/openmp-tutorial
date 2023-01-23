@@ -1,4 +1,4 @@
-# OpenMp Parallel Construct 实现原理与源码分析
+# OpenMP Parallel Construct 实现原理与源码分析
 
 ## 前言
 
@@ -6,7 +6,9 @@
 
 ## Parallel 分析——编译器角度
 
+在本小节当中我们将从编译器的角度去分析该如何处理 parallel construct 。首先从词法分析和语法分析的角度来说这对编译器并不难，只需要加上一些处理规则，关键是编译器将一个 parallel construct 具体编译成了什么？
 
+下面是一个非常简单的
 
 ```c
 #pragma omp parallel
@@ -28,7 +30,33 @@ subfunction (&data);
 GOMP_parallel_end ();
 ```
 
+## 深入剖析 Parallel 动态库函数参数传递
 
+```c
+
+#include <stdio.h>
+#include "omp.h"
+
+int main()
+{
+  int data = 100;
+  int two  = -100;
+  printf("start\n");
+#pragma omp parallel num_threads(4) default(none) shared(data, two)
+  {
+    printf("tid = %d data = %d two = %d\n", omp_get_thread_num(), data, two);
+  }
+
+  printf("finished\n");
+  return 0;
+}
+```
+
+
+
+上面的代码当中两个变量 `data` 和 `two` 在内存当中的布局结构大致如下所示（假设 data 的初始位置时 0x0）：
+
+![](../images/12.png)
 
 | 寄存器 | 含义       |
 | ------ | ---------- |
@@ -38,9 +66,8 @@ GOMP_parallel_end ();
 | rcx    | 第四个参数 |
 | r8     | 第五个参数 |
 | r9     | 第六个参数 |
-|        |            |
 
-## 深入剖析 Parallel 动态库函数参数传递
+
 
 ```asm
 00000000004006cd <main>:
