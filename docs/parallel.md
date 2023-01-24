@@ -2,7 +2,7 @@
 
 ## 前言
 
-在本篇文章当中我们将主要分析 OpenMP 当中的 parallel construct 具体时如何实现的，以及这这个 construct 调用了哪些运行时库函数！
+在本篇文章当中我们将主要分析 OpenMP 当中的 parallel construct 具体时如何实现的，以及这个 construct 调用了哪些运行时库函数，并且详细分析这期间的参数传递！
 
 ## Parallel 分析——编译器角度
 
@@ -95,17 +95,6 @@ int main()
 
 那么根据上面参数传递的情况，我们就可以在 subfunction 当中使用 \*(int\*)data 得到 data 的值，使用 \*((int\*) ((char\*)data + 4)) 得到 two 的值，如果是 private 传递的话我们就可以先拷贝这个数据再使用，如果是 shared 的话，那么我们就可以直接使用指针就行啦。
 
-## 汇编程序分析
-
-| 寄存器 | 含义       |
-| ------ | ---------- |
-| rdi    | 第一个参数 |
-| rsi    | 第二个参数 |
-| rdx    | 第三个参数 |
-| rcx    | 第四个参数 |
-| r8     | 第五个参数 |
-| r9     | 第六个参数 |
-
 上面的程序我们用 pthread 大致描述一下，则 pthread 对应的代码如下所示：
 
 ```c
@@ -122,11 +111,12 @@ typedef struct data_in_main_function{
 
 pthread_t threads[4];
 
-void subfunction(void* data)
+void* subfunction(void* data)
 {
   int two = ((data_in_main_function*)data)->two;
   int data_ = ((data_in_main_function*)data)->data;
   printf("tid = %ld data = %d two = %d\n", pthread_self(), data_, two);
+  return NULL;
 }
 
 int main()
@@ -149,7 +139,20 @@ int main()
 
 
 
+## 汇编程序分析
 
+在本节当中我们将仔细去分析上面的程序所产生的汇编程序，在本文当中的汇编程序基础 x86_64 平台。在分析汇编程序之前我们首先需要了解一下 x86函数的调用规约，具体来说就是在进行函数调用的时候哪些寄存器保存函数参数以及是第几个函数参数。具体的规则如下所示：
+
+| 寄存器 | 含义       |
+| ------ | ---------- |
+| rdi    | 第一个参数 |
+| rsi    | 第二个参数 |
+| rdx    | 第三个参数 |
+| rcx    | 第四个参数 |
+| r8     | 第五个参数 |
+| r9     | 第六个参数 |
+
+我们现在仔细分析一下上面的程序的 main 函数的反汇编程序：
 
 ```asm
 00000000004006cd <main>:
@@ -157,45 +160,76 @@ int main()
   4006ce:       48 89 e5                mov    %rsp,%rbp
   4006d1:       48 83 ec 10             sub    $0x10,%rsp
   4006d5:       c7 45 fc 64 00 00 00    movl   $0x64,-0x4(%rbp)
-  4006dc:       bf f0 07 40 00          mov    $0x4007f0,%edi
-  4006e1:       e8 9a fe ff ff          callq  400580 <puts@plt>
-  4006e6:       8b 45 fc                mov    -0x4(%rbp),%eax
-  4006e9:       89 45 f0                mov    %eax,-0x10(%rbp)
-  4006ec:       48 8d 45 f0             lea    -0x10(%rbp),%rax
-  4006f0:       ba 04 00 00 00          mov    $0x4,%edx
-  4006f5:       48 89 c6                mov    %rax,%rsi
-  4006f8:       bf 2a 07 40 00          mov    $0x40072a,%edi
-  4006fd:       e8 6e fe ff ff          callq  400570 <GOMP_parallel_start@plt>
-  400702:       48 8d 45 f0             lea    -0x10(%rbp),%rax
-  400706:       48 89 c7                mov    %rax,%rdi
-  400709:       e8 1c 00 00 00          callq  40072a <main._omp_fn.0>
-  40070e:       e8 7d fe ff ff          callq  400590 <GOMP_parallel_end@plt>
-  400713:       8b 45 f0                mov    -0x10(%rbp),%eax
-  400716:       89 45 fc                mov    %eax,-0x4(%rbp)
-  400719:       bf f6 07 40 00          mov    $0x4007f6,%edi
-  40071e:       e8 5d fe ff ff          callq  400580 <puts@plt>
-  400723:       b8 00 00 00 00          mov    $0x0,%eax
-  400728:       c9                      leaveq 
-  400729:       c3                      retq 
-  
-  
-000000000040072a <main._omp_fn.0>:
-  40072a:       55                      push   %rbp
-  40072b:       48 89 e5                mov    %rsp,%rbp
-  40072e:       48 83 ec 10             sub    $0x10,%rsp
-  400732:       48 89 7d f8             mov    %rdi,-0x8(%rbp)
-  400736:       e8 65 fe ff ff          callq  4005a0 <omp_get_thread_num@plt>
-  40073b:       48 8b 55 f8             mov    -0x8(%rbp),%rdx
-  40073f:       8b 12                   mov    (%rdx),%edx
-  400741:       89 c6                   mov    %eax,%esi
-  400743:       bf ff 07 40 00          mov    $0x4007ff,%edi
-  400748:       b8 00 00 00 00          mov    $0x0,%eax
-  40074d:       e8 5e fe ff ff          callq  4005b0 <printf@plt>
-  400752:       c9                      leaveq 
-  400753:       c3                      retq   
-  400754:       66 2e 0f 1f 84 00 00    nopw   %cs:0x0(%rax,%rax,1)
-  40075b:       00 00 00 
-  40075e:       66 90                   xchg   %ax,%ax
-
+  4006dc:       c7 45 f8 9c ff ff ff    movl   $0xffffff9c,-0x8(%rbp)
+  4006e3:       bf f4 07 40 00          mov    $0x4007f4,%edi
+  4006e8:       e8 93 fe ff ff          callq  400580 <puts@plt>
+  4006ed:       8b 45 fc                mov    -0x4(%rbp),%eax
+  4006f0:       89 45 f0                mov    %eax,-0x10(%rbp)
+  4006f3:       8b 45 f8                mov    -0x8(%rbp),%eax
+  4006f6:       89 45 f4                mov    %eax,-0xc(%rbp)
+  4006f9:       48 8d 45 f0             lea    -0x10(%rbp),%rax
+  4006fd:       ba 04 00 00 00          mov    $0x4,%edx
+  400702:       48 89 c6                mov    %rax,%rsi
+  400705:       bf 3d 07 40 00          mov    $0x40073d,%edi
+  40070a:       e8 61 fe ff ff          callq  400570 <GOMP_parallel_start@plt>
+  40070f:       48 8d 45 f0             lea    -0x10(%rbp),%rax
+  400713:       48 89 c7                mov    %rax,%rdi
+  400716:       e8 22 00 00 00          callq  40073d <main._omp_fn.0>
+  40071b:       e8 70 fe ff ff          callq  400590 <GOMP_parallel_end@plt>
+  400720:       8b 45 f0                mov    -0x10(%rbp),%eax
+  400723:       89 45 fc                mov    %eax,-0x4(%rbp)
+  400726:       8b 45 f4                mov    -0xc(%rbp),%eax
+  400729:       89 45 f8                mov    %eax,-0x8(%rbp)
+  40072c:       bf fa 07 40 00          mov    $0x4007fa,%edi
+  400731:       e8 4a fe ff ff          callq  400580 <puts@plt>
+  400736:       b8 00 00 00 00          mov    $0x0,%eax
+  40073b:       c9                      leaveq 
+  40073c:       c3                      retq   
 ```
 
+从上面的反汇编程序我们可以看到在主函数的汇编代码当中确实调用了函数 GOMP_parallel_start 和 GOMP_parallel_end，并且 subfunction 为 main._omp_fn.0 ，它对应的汇编程序如下所示：
+
+```asm
+000000000040073d <main._omp_fn.0>:
+  40073d:       55                      push   %rbp
+  40073e:       48 89 e5                mov    %rsp,%rbp
+  400741:       48 83 ec 10             sub    $0x10,%rsp
+  400745:       48 89 7d f8             mov    %rdi,-0x8(%rbp)
+  400749:       e8 52 fe ff ff          callq  4005a0 <omp_get_thread_num@plt>
+  40074e:       48 8b 55 f8             mov    -0x8(%rbp),%rdx
+  400752:       8b 4a 04                mov    0x4(%rdx),%ecx
+  400755:       48 8b 55 f8             mov    -0x8(%rbp),%rdx
+  400759:       8b 12                   mov    (%rdx),%edx
+  40075b:       89 c6                   mov    %eax,%esi
+  40075d:       bf 03 08 40 00          mov    $0x400803,%edi
+  400762:       b8 00 00 00 00          mov    $0x0,%eax
+  400767:       e8 44 fe ff ff          callq  4005b0 <printf@plt>
+  40076c:       c9                      leaveq 
+  40076d:       c3                      retq   
+  40076e:       66 90                   xchg   %ax,%ax
+```
+
+### GOMP_parallel_start 详细参数分析
+
+- `void (*fn)(void *)`， 我们现在来看一下函数 GOMP_parallel_start 的第一个参数，根据我们前面谈到的第一个参数应该保存在 rdi 寄存器，我们现在分析一下在 main 函数的反汇编程序当中在调用函数 GOMP_parallel_start 之前 rdi 寄存器的值。我们可以看到在 main 函数位置为 4006f8 的地方的指令  `mov $0x40073d,%edi` 可以看到 rdi 寄存器的值为 0x40073d （edi 寄存器是 rdi 寄存器的低 32 位），我们可以看到 函数 main._omp_fn.0 的起始地址就是 0x40073d ，因此我们就可以在函数 GOMP_parallel_start 使用这个函数指针了，最终在启动的线程当中调用这个函数。
+
+- `void *data`，这是函数 GOMP_parallel_start 的第二个参数，根据前面的分析第二个参数保存在 rsi 寄存器当中，我现在将 main 数当中和 rsi 相关的指令选择出来：
+
+```asm
+00000000004006cd <main>:
+  4006cd:       55                      push   %rbp
+  4006ce:       48 89 e5                mov    %rsp,%rbp
+  4006d1:       48 83 ec 10             sub    $0x10,%rsp
+  4006d5:       c7 45 fc 64 00 00 00    movl   $0x64,-0x4(%rbp)
+  4006dc:       c7 45 f8 9c ff ff ff    movl   $0xffffff9c,-0x8(%rbp)
+  4006ed:       8b 45 fc                mov    -0x4(%rbp),%eax
+  4006f0:       89 45 f0                mov    %eax,-0x10(%rbp)
+  4006f3:       8b 45 f8                mov    -0x8(%rbp),%eax
+  4006f6:       89 45 f4                mov    %eax,-0xc(%rbp)
+  4006f9:       48 8d 45 f0             lea    -0x10(%rbp),%rax
+  400702:       48 89 c6                mov    %rax,%rsi
+```
+
+上面的汇编程序的栈空间以及在调用函数之前 GOMP_parallel_start 部分寄存器的指向如下所示：
+
+![](../images/14.png)

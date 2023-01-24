@@ -11,11 +11,12 @@ typedef struct data_in_main_function{
 
 pthread_t threads[4];
 
-void subfunction(void* data)
+void* subfunction(void* data)
 {
   int two = ((data_in_main_function*)data)->two;
   int data_ = ((data_in_main_function*)data)->data;
   printf("tid = %ld data = %d two = %d\n", pthread_self(), data_, two);
+  return NULL;
 }
 
 int main()
