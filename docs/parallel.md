@@ -32,7 +32,7 @@ subfunction (&data);
 GOMP_parallel_end ();
 ```
 
-首先 parallel construct 中的代码块会被编译成一个函数 sub function，当谈了函数名不一定是这个，然后会在使用 `#pragma omp parallel` 的函数当中将一个 parallel construct 编译成 OpenMP 动态库函数的调用，在上面的伪代码当中也指出了，具体会调用 OpenMP 的两个库函数 GOMP_parallel_start 和 GOMP_parallel_end ，并且主线程也会调用函数 subfunction 。
+首先 parallel construct 中的代码块会被编译成一个函数 sub function，当然了函数名不一定是这个，然后会在使用 `#pragma omp parallel` 的函数当中将一个 parallel construct 编译成 OpenMP 动态库函数的调用，在上面的伪代码当中也指出了，具体会调用 OpenMP 的两个库函数 GOMP_parallel_start 和 GOMP_parallel_end ，并且主线程也会调用函数 subfunction ，我们在后面的文章单中在仔细分析这两个动态库函数的源代码。
 
 ## 深入剖析 Parallel 动态库函数参数传递
 
