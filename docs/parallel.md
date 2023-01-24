@@ -315,7 +315,7 @@ gomp_thread_start (void *xdata)
 
 ### GOMP_parallel_end 分析
 
-这个函数的主要作用就是一个同步点，保证所有的线程都执行完成之后再继续往后执行，这一部分的源代码比较杂，其核心原理就是使用路障 barrier 去实现的，这其中是 OpenMP 自己实现的一个 barrier 而不是直接使用 pthread 当中的 barrier ，这一部分的源程序就不进行仔细分析了，感兴趣的同学可以自行阅读，可以参考 [OpenMP 锁实现原理](https://github.com/Chang-LeHung/openmp-tutorial/blob/master/docs/runtime02.md) 。
+这个函数的主要作用就是一个同步点，保证所有的线程都执行完成之后再继续往后执行，这一部分的源代码比较杂，其核心原理就是使用路障 barrier 去实现的，这其中是 OpenMP 自己实现的一个 barrier 而不是直接使用 pthread 当中的 barrier ，这一部分的源程序就不进行仔细分析了，感兴趣的同学可以自行阅读，可以参考 [OpenMP 锁实现原理](https://mp.weixin.qq.com/s?__biz=Mzg3ODgyNDgwNg==&mid=2247487476&idx=1&sn=ed37c95595582b049f145576ce4c7060&chksm=cf0c93fdf87b1aeb1ce1aac1b1851b7cccb7cb1f0466b4715c8ec3eb7af27eb71dca1e2d9d1c&token=762829354&lang=zh_CN#rd) 。
 
 ## 总结
 
