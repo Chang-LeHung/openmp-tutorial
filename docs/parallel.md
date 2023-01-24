@@ -32,11 +32,36 @@ subfunction (&data);
 GOMP_parallel_end ();
 ```
 
-首先 parallel construct 中的代码块会被编译成一个函数 sub function，当然了函数名不一定是这个，然后会在使用 `#pragma omp parallel` 的函数当中将一个 parallel construct 编译成 OpenMP 动态库函数的调用，在上面的伪代码当中也指出了，具体会调用 OpenMP 的两个库函数 GOMP_parallel_start 和 GOMP_parallel_end ，并且主线程也会调用函数 subfunction ，我们在后面的文章单中在仔细分析这两个动态库函数的源代码。
+首先 parallel construct 中的代码块会被编译成一个函数 sub function，当然了函数名不一定是这个，然后会在使用 `#pragma omp parallel` 的函数当中将一个 parallel construct 编译成 OpenMP 动态库函数的调用，在上面的伪代码当中也指出了，具体会调用 OpenMP 的两个库函数 GOMP_parallel_start 和 GOMP_parallel_end ，并且主线程也会调用函数 subfunction ，我们在后面的文章当中在仔细分析这两个动态库函数的源代码。
 
 ## 深入剖析 Parallel 动态库函数参数传递
 
-在本小节当中，我们主要去分析一下在 OpenMP 当中共享参数是如何传递的，以及介绍函数 GOMP_parallel_start 的几个参数的含义。具体我们使用下面的程序作为例子：
+### 动态库函数分析
+
+在本小节当中，我们主要去分析一下在 OpenMP 当中共享参数是如何传递的，以及介绍函数 GOMP_parallel_start 的几个参数的含义。
+
+首先我们分析函数 GOMP_parallel_start 的参数含义，这个函数的函数原型如下：
+
+```c
+void GOMP_parallel_start (void (*fn)(void *), void *data, unsigned num_threads)
+```
+
+上面这个函数一共有三个参数：
+
+- 第一个参数 fn 是一个函数指针，主要是用于指向上面编译出来的 subfunction 这个函数的，因为需要多个线程同时执行这个函数，因此需要将这个函数传递过去，让不同的线程执行。
+- 第二个参数是传递的数据，我们在并行域当中会使用到共享的或者私有的数据，这个指针主要是用于传递数据的，我们在后面会仔细分析这个参数的使用。
+- 第三个参数是表示 num_threads 子句指定的线程个数，如果不指定这个子句默认的参数是 0 ，但是如果你使用了 IF 子句并且条件是 false 的话，那么这个参数的值就是 1 。
+- 这个函数的主要作用是启动一个或者多个线程，并且执行函数 fn 。
+
+```c
+void GOMP_parallel_end (void)
+```
+
+- 这个函数的主要作用是进行线程的同步，因为一个 parallel 并行域需要等待所有的线程都执行完成之后才继续往后执行。除此之外还需要释放线程组的资源并行返回到之前的 omp_in_parallel() 表示的状态。
+
+### 参数传递分析
+
+我们现在使用下面的代码来具体分析参数传递过程：
 
 ```c
 
@@ -58,23 +83,13 @@ int main()
 }
 ```
 
-首先我们分析函数 GOMP_parallel_start 的参数含义，这个函数的函数原型如下：
-
-```c
-void GOMP_parallel_start (void (*fn)(void *), void *data, unsigned num_threads)
-```
-
-上面这个函数一共有三个参数：
-
-- 第一个参数 fn 是一个函数指针，主要是用于指向上面编译出来的 subfunction 这个函数的，因为需要多个线程同时执行这个函数，因此需要将这个函数传递过去，让不同的线程执行。
-- 第二个参数是传递的数据，我们在并行域当中会使用到共享的或者私有的数据，这个指针主要是用于传递数据的，我们在后面会仔细分析这个参数的使用。
-- 第三个参数是表示 num_threads 子句指定的线程个数，如果不指定这个子句默认的参数是 0 ，但是如果你使用了 IF 子句并且条件是 false 的话，那么这个参数的值就是 1 。
-
-
+我们首先来分析一下上面的两个变量 data 和 two 的是如何被传递的，我们首先用图的方式进行表示，然后分析一下汇编程序并且对图进行验证。
 
 上面的代码当中两个变量 `data` 和 `two` 在内存当中的布局结构大致如下所示（假设 data 的初始位置时 0x0）：
 
 ![](../images/12.png)
+
+那么在函数 GOMP_parallel_start 当中传递的参数 data 就是 0x0 也就是指向 data 的内存地址，如下图所示：
 
 ![](../images/13.png)
 
