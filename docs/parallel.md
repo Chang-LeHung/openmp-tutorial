@@ -236,7 +236,88 @@ int main()
 
 最终在调用函数 GOMP_parallel_start 之前 rsi 寄存器的指向如上图所示，上图当中 rsi 的指向的内存地址作为参数传递过去。根据上文谈到的 subfunction 中的参数可以知道，在函数 main._omp_fn.0 当中的 rdi 寄存器（也就是第一个参数 \*data）的值就是上图当中 rsi 寄存器指向的内存地址的值（事实上也就是 rsi 寄存器的值）。大家可以自行对照着函数 main._omp_fn.0  的汇编程序对 rdi 寄存器的使用就可以知道这其中的参数传递的过程了。
 
-- `unsigned num_threads`，根据前文提到的保存第三个参数的寄存器是 rdx，在 main 函数的位置 4006fd 处，指令为 `mov    $0x4,%edx`，这和我们自己写的程序是一致的都是 4 (0x4)。
+- `unsigned num_threads`，根据前文提到的保存第三个参数的寄存器是 rdx，在 main 函数的位置 4006fd 处，指令为 mov $0x4,%edx，这和我们自己写的程序是一致的都是 4 (0x4)。
 
 ## 动态库函数源码分析
+
+### GOMP_parallel_start 源码分析
+
+我们首先来看一下函数 GOMP_parallel_start 的源代码：
+
+```c
+void
+GOMP_parallel_start (void (*fn) (void *), void *data, unsigned num_threads)
+{
+  num_threads = gomp_resolve_num_threads (num_threads, 0);
+  gomp_team_start (fn, data, num_threads, gomp_new_team (num_threads));
+}
+```
+
+在这里我们对函数 gomp_team_start 进行分析，其他两个函数 gomp_resolve_num_threads 和 gomp_new_team 只简单进行作用说明，太细致的源码分析其实是没有必要的，感兴趣的同学自行分析即可，我们只需要了解整个执行流程即可。
+
+- gomp_resolve_num_threads，这个函数的主要作用是最终确定需要几个线程去执行任务，因为我们可能并没有使用 num_threads 子句，而且这个值和环境变量也有关系，因此需要对线程的个数进行确定。
+- gomp_new_team，这个函数的主要作用是创建包含 num_threads 个线程数据的线程组，并且对数据进行初始化操作。
+- gomp_team_start，这个函数的主要作用是启动 num_threads 个线程去执行函数 fn ，这其中涉及一些细节，比如说线程的亲和性（affinity）设置。
+
+由于 gomp_team_start 的源代码太长了，这里只是节选部分源程序进行分析：
+
+```c
+  /* Launch new threads.  */
+  for (; i < nthreads; ++i, ++start_data)
+    {
+      pthread_t pt;
+      int err;
+
+      start_data->fn = fn; // 这行代码就是将 subfunction 函数指针进行保存最终在函数  gomp_thread_start 当中进行调用
+      start_data->fn_data = data; // 这里保存函数 subfunction 的函数参数
+      start_data->ts.team = team; // 线程的所属组
+      start_data->ts.work_share = &team->work_shares[0];
+      start_data->ts.last_work_share = NULL;
+      start_data->ts.team_id = i; // 线程的 id 我们可以使用函数 omp_get_thread_num 得到这个值
+      start_data->ts.level = team->prev_ts.level + 1;
+      start_data->ts.active_level = thr->ts.active_level;
+#ifdef HAVE_SYNC_BUILTINS
+      start_data->ts.single_count = 0;
+#endif
+      start_data->ts.static_trip = 0;
+      start_data->task = &team->implicit_task[i];
+      gomp_init_task (start_data->task, task, icv);
+      team->implicit_task[i].icv.nthreads_var = nthreads_var;
+      start_data->thread_pool = pool;
+      start_data->nested = nested;
+			// 如果使用了线程的亲和性那么还需要进行亲和性设置
+      if (gomp_cpu_affinity != NULL)
+	gomp_init_thread_affinity (attr);
+
+      err = pthread_create (&pt, attr, gomp_thread_start, start_data);
+      if (err != 0)
+	gomp_fatal ("Thread creation failed: %s", strerror (err));
+    }
+```
+
+上面的程序就是最终启动线程的源程序，可以看到这是一个 for 循环并且启动 nthreads 个线程，`pthread_create` 是真正创建了线程的代码，并且让线程执行函数 gomp_thread_start 可以看到线程不是直接执行 subfunction 而是将这个函数指针保存到 start_data 当中，并且在函数 gomp_thread_start 真正去调用这个函数，看到这里大家应该明白了整个 parallel construct 的整个流程了。
+
+gomp_thread_start 的函数题也相对比较长，在这里我们选中其中的比较重要的几行代码，其余的代码进行省略。对比上面线程启动的 pthread_create 语句我们可以知道，下面的程序真正的调用了 subfunction，并且给这个函数传递了对应的参数。
+
+```c
+static void *
+gomp_thread_start (void *xdata)
+{
+  struct gomp_thread_start_data *data = xdata;
+  /* Extract what we need from data.  */
+  local_fn = data->fn;
+  local_data = data->fn_data;
+  local_fn (local_data);
+  return NULL;
+}
+
+```
+
+### GOMP_parallel_end 分析
+
+这个函数的主要作用就是一个同步点，保证所有的线程都执行完成之后再继续往后执行，这一部分的源代码比较杂，其核心原理就是使用路障 barrier 去实现的，这其中是 OpenMP 自己实现的一个 barrier 而不是直接使用 pthread 当中的 barrier ，这一部分的源程序就不进行仔细分析了，感兴趣的同学可以自行阅读，可以参考 [OpenMP 锁实现原理](https://github.com/Chang-LeHung/openmp-tutorial/blob/master/docs/runtime02.md) 。
+
+## 总结
+
+在本篇文章当中主要给大家介绍了 parallel construct 的实现原理，以及他的动态库函数的调用以及源代码分析，大家只需要了解整个流程不太需要死扣细节（这并无很大的用处）只有当我们自己需要去实现 OpenMP 的时候需要去了解这些细节，不然我们只需要了解整个动态库的设计即可！
 
