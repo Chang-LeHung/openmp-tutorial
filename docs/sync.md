@@ -129,9 +129,9 @@ int main()
   40117b:       48 89 e5                mov    %rsp,%rbp
   40117e:       48 83 ec 10             sub    $0x10,%rsp
   401182:       48 89 7d f8             mov    %rdi,-0x8(%rbp)
-  401186:       e8 a5 fe ff ff          callq  401030 <omp_get_thread_num@plt> // 得到线程的 id 并保存到 eax 寄存器当中
-  40118b:       85 c0                   test   %eax,%eax // 看看寄存器 eax 是不是等于 0
-  40118d:       75 16                   jne     4011a5  <main._omp_fn.0+0x2b> // 如果不等于 0 则跳转到 4011a5 的位置 也就是直接退出程序了 如果是那么就继续执行后面的 printf 语句
+  401186:       e8 a5 fe ff ff          callq  401030 <omp_get_thread_num@plt> # 得到线程的 id 并保存到 eax 寄存器当中
+  40118b:       85 c0                   test   %eax,%eax # 看看寄存器 eax 是不是等于 0
+  40118d:       75 16                   jne     4011a5  <main._omp_fn.0+0x2b> # 如果不等于 0 则跳转到 4011a5 的位置 也就是直接退出程序了 如果是那么就继续执行后面的 printf 语句
   40118f:       e8 9c fe ff ff          callq  401030 <omp_get_thread_num@plt>
   401194:       89 c6                   mov    %eax,%esi
   401196:       bf 10 20 40 00          mov    $0x402010,%edi
