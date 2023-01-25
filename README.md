@@ -9,3 +9,4 @@ openmp tutorial series
 - [深入剖析 OpenMP 线程绑定与 NUMA 架构](./docs/numa.md)
 - [OpenMp Parallel Construct 实现原理与源码分析](./docs/parallel.md)
 - [OpenMP 线程同步 Construct 实现原理以及源码分析（上）](./docs/sync.md)
+- [OpenMP 线程同步 Construct 实现原理以及源码分析（下）](./docs/sync02.md)
