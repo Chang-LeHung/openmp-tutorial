@@ -1,4 +1,4 @@
-# OpenMP 线程同步 Construct 实现原理以及源码分析
+# OpenMP 线程同步 Construct 实现原理以及源码分析（上）
 
 ## 前言
 
@@ -289,7 +289,9 @@ int main()
 
 从上面的结果我们可以看到在调用函数 GOMP_critical_name_start 时，传递的参数的值为 0x404058 （显然这个就是在编译的时候就确定的），我们现在来看一下 0x404058 位置在哪一个节。
 
-上面的程序的节头表如下所示：
+根据 x86 的调用规约，rdi/edi 寄存器存储的就是调用函数的第一个参数，而在函数 GOMP_critical_name_start 被调用之前我们可以看到 edi 寄存器的值是 0x404058 ，(`mov $0x404058,%edi`) 因此 pptr 指针的值就是 0x404058 。
+
+为了确定指针指向的数据的位置我们可以查看节头表当中各个节在可执行程序当中的位置，判断 0x404058 在哪个节当中，上面的程序的节头表如下所示：
 
 ```shell
 Section Headers:
@@ -370,7 +372,7 @@ Key to Flags:
   l (large), p (processor specific)
 ```
 
-从上面的节头表我们可以看到第 24 个小节 bss 他的起始地址为 0000000000404050 一共站 16 个字节，也就是说 0x404058 指向的数据在 bss 节，程序执行的时候会将数据初始化为 0 。
+从上面的节头表我们可以看到第 24 个小节 bss 他的起始地址为 0000000000404050 一共站 16 个字节，也就是说 0x404058 指向的数据在 bss 节的数据范围，也就是说锁对应的 int 类型（4 个字节）的数据在 bss 节，程序执行的时候会将 bss 节当中的数据初始化为 0， 0 表示无锁状态。
 
 我们现在来看一下函数 GOMP_critical_name_start 源代码（为了方便查看删除了部分代码）：
 
@@ -392,7 +394,7 @@ GOMP_critical_name_start (void **pptr)
 
 ```
 
-从语句 `plock = (gomp_mutex_t *)pptr` 可以知道将传递的参数作为一个 int 类型的指针使用，这个指针指向的就是 bss 节的数据，然后对这个数据进行加锁操作（`gomp_mutex_lock (plock)`） 。
+从语句 `plock = (gomp_mutex_t *)pptr` 可以知道将传递的参数作为一个 int 类型的指针使用，这个指针指向的就是 bss 节的数据，然后对这个数据进行加锁操作（`gomp_mutex_lock (plock)`），关于函数 gomp_mutex_lock ，在文章  [OpenMP Runtime Library : Openmp 常见的动态库函数使用（下）——深入剖析锁🔒原理与实现](https://github.com/Chang-LeHung/openmp-tutorial/blob/master/docs/runtime02.md)  当中有详细的讲解 。
 
 我们在来看一下 GOMP_critical_name_end 的源代码：
 
@@ -416,3 +418,14 @@ GOMP_critical_name_end (void **pptr)
 ```
 
 同样的还是使用 bss 节的数据进行解锁操作，关于加锁解锁操作的细节可以阅读这篇文章 [OpenMP Runtime Library : Openmp 常见的动态库函数使用（下）——深入剖析锁🔒原理与实现](https://github.com/Chang-LeHung/openmp-tutorial/blob/master/docs/runtime02.md)  。
+
+## 总结
+
+在本篇文章当中主要给大家介绍了 flush, master 和 critical 指令的实现细节和他的调用的库函数，并且深入分析了这几个 construct 当中设计的库函数的源代码，希望大家有所收获。
+
+---
+
+更多精彩内容合集可访问项目：<https://github.com/Chang-LeHung/CSCore>
+
+关注公众号：一无是处的研究僧，了解更多计算机（Java、Python、计算机系统基础、算法与数据结构）知识。
+
