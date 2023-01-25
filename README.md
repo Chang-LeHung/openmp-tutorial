@@ -8,3 +8,4 @@ openmp tutorial series
 - [OpenMP 原子指令设计与实现](./docs/atomic.md)
 - [深入剖析 OpenMP 线程绑定与 NUMA 架构](./docs/numa.md)
 - [OpenMp Parallel Construct 实现原理与源码分析](./docs/parallel.md)
+- [OpenMP 线程同步 construct 实现原理以及源码分析](./docs/sync.md)
