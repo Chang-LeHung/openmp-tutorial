@@ -233,7 +233,39 @@ GOMP_critical_end (void)
 
 ### #pragma omp critical(name)
 
-.data 节是用来存放程序中定义的全局变量和静态变量的初始值的内存区域。这些变量的值在程序开始执行前就已经确定。.bss 节是用来存放程序中定义的全局变量和静态变量的未初始化的内存区域。这些变量在程序开始执行前并没有初始化的值。在程序开始执行时，这些变量会被系统自动初始化为0。总的来说，.data 存放已初始化数据，.bss存放未初始化数据。
+如果我们使用命令的 critical 的话，那么调用的库函数和前面是不一样的，具体来说是调用下面两个库函数：
+
+```c
+void GOMP_critical_name_end (void **pptr);
+void GOMP_critical_name_start (void **pptr);
+```
+
+其中 pptr 是指向一个指向锁的指针，在前面的文章 [OpenMP Runtime Library : Openmp 常见的动态库函数使用（下）——深入剖析锁🔒原理与实现](https://github.com/Chang-LeHung/openmp-tutorial/blob/master/docs/runtime02.md)  当中我们仔细讨论过这个锁其实就是一个 int 类型的变量。这个变量在编译期间就会在 bss 节分配空间，在程序启动的时候将其初始化为 0 ，表示没上锁的状态，关于这一点在上面谈到的文章当中有仔细的讨论。
+
+这里可能需要区分一下 data 节和 bss 节，.data 节是用来存放程序中定义的全局变量和静态变量的初始值的内存区域。这些变量的值在程序开始执行前就已经确定。.bss 节是用来存放程序中定义的全局变量和静态变量的未初始化的内存区域。这些变量在程序开始执行前并没有初始化的值。在程序开始执行时，这些变量会被系统自动初始化为0。总的来说，.data 存放已初始化数据，.bss存放未初始化数据。
+
+我们现在来分析一个命名的 critical 子句他的汇编程序：
+
+```c
+#include <stdio.h>
+#include <omp.h>
+
+int main()
+{
+  int data = 0;
+#pragma omp parallel num_threads(4) default(none) shared(data)
+  {
+#pragma omp critical(A)
+    {
+      data++;
+    }
+  }
+  printf("data = %d\n", data);
+  return 0;
+}
+```
+
+上面的代码经过编译之后得到下面的结果：
 
 ```asm
 00000000004011b7 <main._omp_fn.0>:
@@ -254,6 +286,10 @@ GOMP_critical_end (void)
   4011e7:       c3                      retq   
   4011e8:       0f 1f 84 00 00 00 00    nopl   0x0(%rax,%rax,1)
 ```
+
+从上面的结果我们可以看到在调用函数 GOMP_critical_name_start 时，传递的参数的值为 0x404058 （显然这个就是在编译的时候就确定的），我们现在来看一下 0x404058 位置在哪一个节。
+
+上面的程序的节头表如下所示：
 
 ```shell
 Section Headers:
@@ -334,3 +370,49 @@ Key to Flags:
   l (large), p (processor specific)
 ```
 
+从上面的节头表我们可以看到第 24 个小节 bss 他的起始地址为 0000000000404050 一共站 16 个字节，也就是说 0x404058 指向的数据在 bss 节，程序执行的时候会将数据初始化为 0 。
+
+我们现在来看一下函数 GOMP_critical_name_start 源代码（为了方便查看删除了部分代码）：
+
+```c
+void
+GOMP_critical_name_start (void **pptr)
+{
+  gomp_mutex_t *plock;
+
+  /* If a mutex fits within the space for a pointer, and is zero initialized,
+     then use the pointer space directly.  */
+  if (GOMP_MUTEX_INIT_0
+      && sizeof (gomp_mutex_t) <= sizeof (void *)
+      && __alignof (gomp_mutex_t) <= sizeof (void *))
+    plock = (gomp_mutex_t *)pptr; // gomp_mutex_t 就是 int 类型
+
+  gomp_mutex_lock (plock);
+}
+
+```
+
+从语句 `plock = (gomp_mutex_t *)pptr` 可以知道将传递的参数作为一个 int 类型的指针使用，这个指针指向的就是 bss 节的数据，然后对这个数据进行加锁操作（`gomp_mutex_lock (plock)`） 。
+
+我们在来看一下 GOMP_critical_name_end 的源代码：
+
+```c
+void
+GOMP_critical_name_end (void **pptr)
+{
+  gomp_mutex_t *plock;
+
+  /* If a mutex fits within the space for a pointer, and is zero initialized,
+     then use the pointer space directly.  */
+  if (GOMP_MUTEX_INIT_0
+      && sizeof (gomp_mutex_t) <= sizeof (void *)
+      && __alignof (gomp_mutex_t) <= sizeof (void *))
+    plock = (gomp_mutex_t *)pptr;
+  else
+    plock = *pptr;
+
+  gomp_mutex_unlock (plock);
+}
+```
+
+同样的还是使用 bss 节的数据进行解锁操作，关于加锁解锁操作的细节可以阅读这篇文章 [OpenMP Runtime Library : Openmp 常见的动态库函数使用（下）——深入剖析锁🔒原理与实现](https://github.com/Chang-LeHung/openmp-tutorial/blob/master/docs/runtime02.md)  。
