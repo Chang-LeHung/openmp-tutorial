@@ -99,9 +99,20 @@ typedef unsigned int gomp_barrier_state_t;
 - total，这个变量表示一个需要等待多少个线程到达同步点之后才能够继续往后执行。
 - awaited，这个变量表示还需要等待多少个线程。
 - 初始化的时候 total 和 awaited 这两个变量是相等的。
-- generation 这个变量与 OpenMP 当中的 task 有关，这个变量稍微有点复杂，这里不做分析。
+- generation 这个变量与 OpenMP 当中的 task 有关，这个变量稍微有点复杂，由于我们的分析不涉及到 OpenMP 当中的任务，因此这类对这个变量不做分析，这个变量的初始值等于 0。
 
-现在我们来对函数 gomp_team_barrier_wait 进行分析：
+结构体 gomp_barrier_t 初始化函数如下所示：
+
+```c
+static inline void gomp_barrier_init (gomp_barrier_t *bar, unsigned count)
+{
+  bar->total = count;
+  bar->awaited = count;
+  bar->generation = 0;
+}
+```
+
+现在我们来对函数 gomp_team_barrier_wait 进行分析，关于代码的详细都在代码的对应位置：
 
 ```c
 void
@@ -113,12 +124,17 @@ gomp_team_barrier_wait (gomp_barrier_t *bar)
 static inline gomp_barrier_state_t
 gomp_barrier_wait_start (gomp_barrier_t *bar)
 {
+  // 因为我们不分析 OpenMP 当中的 task ,因此在这里可能认为 generation 始终等于 0 
+  // 那么 ret 也等于 0
   unsigned int ret = __atomic_load_n (&bar->generation, MEMMODEL_ACQUIRE) & ~3;
   /* A memory barrier is needed before exiting from the various forms
      of gomp_barrier_wait, to satisfy OpenMP API version 3.1 section
      2.8.6 flush Construct, which says there is an implicit flush during
      a barrier region.  This is a convenient place to add the barrier,
      so we use MEMMODEL_ACQ_REL here rather than MEMMODEL_ACQUIRE.  */
+  // 这里将 awaited 还需要等待的线程数 -1 并且判断 awaited 是否等于 0
+  // 如果等于 0 则返回 1 反之则返回 0 如果不考虑 task 只有最后一个到达同步点的线程
+  // 才会返回 1
   ret += __atomic_add_fetch (&bar->awaited, -1, MEMMODEL_ACQ_REL) == 0;
   return ret;
 }
@@ -129,14 +145,16 @@ void
 gomp_team_barrier_wait_end (gomp_barrier_t *bar, gomp_barrier_state_t state)
 {
   unsigned int generation, gen;
-
+	// 如果 state 等于 1 将会进入下面的 if 语句
   if (__builtin_expect ((state & 1) != 0, 0))
     {
+    	// 如果是最后一个线程到达这里，那么将会重新将 awaited 变成 total
       /* Next time we'll be awaiting TOTAL threads again.  */
       struct gomp_thread *thr = gomp_thread ();
       struct gomp_team *team = thr->ts.team;
 
       bar->awaited = bar->total;
+    // 如果还有需要执行的任务 那么将进入 if 语句
       if (__builtin_expect (team->task_count, 0))
 	{
 	  gomp_barrier_handle_tasks (state);
@@ -144,11 +162,16 @@ gomp_team_barrier_wait_end (gomp_barrier_t *bar, gomp_barrier_state_t state)
 	}
       else
 	{
+    // 如果没有需要执行的任务直接 那么则需要将之前被挂起的线程全部唤醒
 	  __atomic_store_n (&bar->generation, state + 3, MEMMODEL_RELEASE);
 	  futex_wake ((int *) &bar->generation, INT_MAX);
 	  return;
 	}
     }
+  // 如果 if 条件不满足，也就是说到达 barrier 的线程不是最后一个线程
+  // 那么将会执行到这里进行挂起
+  
+  // 这里省略了代码 如果程序执行到这里将会被继续挂起 直到上面的 futex_wake 被执行
 }
 
 ```
