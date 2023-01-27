@@ -2,7 +2,16 @@
 
 #include <stdio.h>
 #include <omp.h>
-#include <bits/pthreadtypes.h>
+
+
+typedef struct
+{
+    /* Make sure total/generation is in a mostly read cacheline, while
+       awaited in a separate cacheline.  */
+    unsigned total __attribute__((aligned (64)));
+    unsigned generation;
+    unsigned awaited __attribute__((aligned (64)));
+} gomp_barrier_t;
 
 int main()
 {
@@ -13,6 +22,6 @@ int main()
     printf("tid = %d end\n", omp_get_thread_num());
   }
 
-  printf("sizeof(unsigned) = %ld\n", sizeof (unsigned));
+  printf("sizeof(gomp_barrier_t) = %ld\n", sizeof (gomp_barrier_t));
   return 0;
 }

@@ -162,7 +162,7 @@ gomp_team_barrier_wait_end (gomp_barrier_t *bar, gomp_barrier_state_t state)
 	}
       else
 	{
-    // 如果没有需要执行的任务直接 那么则需要将之前被挂起的线程全部唤醒
+    // 如果没有需要执行的任务 那么则需要将之前被挂起的线程全部唤醒
 	  __atomic_store_n (&bar->generation, state + 3, MEMMODEL_RELEASE);
 	  futex_wake ((int *) &bar->generation, INT_MAX);
 	  return;
@@ -175,4 +175,8 @@ gomp_team_barrier_wait_end (gomp_barrier_t *bar, gomp_barrier_state_t state)
 }
 
 ```
+
+### 技巧分析
+
+在上面的结构体 gomp_barrier_t 当中有语句 `unsigned total __attribute__((aligned (64)));` 后面的 __attribute__((aligned (64))) 表示这个字段需要使用 64 字节对齐，那么这个字段也占 64 字节，一般来说一个缓存行有 64 个字节的数据，也就是说这三个字段的数据不会存储在同一个缓存行，这样的话多个线程在操作这三个数据的时候不会产生假共享 (false sharing) 的问题，这可以很提高程序的效率。
 
