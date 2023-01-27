@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <omp.h>
+#include <bits/pthreadtypes.h>
 
 int main()
 {

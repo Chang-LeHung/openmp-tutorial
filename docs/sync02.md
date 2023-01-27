@@ -64,14 +64,92 @@ int main()
 void
 GOMP_barrier (void)
 {
+  // 得到当前线程的相关数据
   struct gomp_thread *thr = gomp_thread ();
+  // 得到当前线程的线程组
   struct gomp_team *team = thr->ts.team;
 
   /* It is legal to have orphaned barriers.  */
   if (team == NULL)
     return;
-
+  // 使用线程组内部的 barrier 只有所有的线程都到达这个同步点之后才能够继续往后执行
+  // 否则就需要进入内核挂起 
   gomp_team_barrier_wait (&team->barrier);
 }
+```
+
+上面的代码就是使用当前线程线程组内部的 barrier ，让线程组当中的所有线程都到达同步点之后才继续往后执行，如果你使用过 pthread 中的线程同步工具路障 pthread_barrier_t 的话就很容易理解了。
+
+在继续往后分析程序之前我们首先需要了解两个数据类型：
+
+```c
+typedef struct
+{
+  /* Make sure total/generation is in a mostly read cacheline, while
+     awaited in a separate cacheline.  */
+  unsigned total __attribute__((aligned (64)));
+  unsigned generation;
+  unsigned awaited __attribute__((aligned (64)));
+} gomp_barrier_t;
+typedef unsigned int gomp_barrier_state_t;
+```
+
+我们重点分析一下 gomp_barrier_t ，team->barrier 就是这个变量类型，在这个结构体当中一共有三个变量我们重点分析第一个和第三个变量的含义：
+
+- total，这个变量表示一个需要等待多少个线程到达同步点之后才能够继续往后执行。
+- awaited，这个变量表示还需要等待多少个线程。
+- 初始化的时候 total 和 awaited 这两个变量是相等的。
+- generation 这个变量与 OpenMP 当中的 task 有关，这个变量稍微有点复杂，这里不做分析。
+
+现在我们来对函数 gomp_team_barrier_wait 进行分析：
+
+```c
+void
+gomp_team_barrier_wait (gomp_barrier_t *bar)
+{
+  gomp_team_barrier_wait_end (bar, gomp_barrier_wait_start (bar));
+}
+
+static inline gomp_barrier_state_t
+gomp_barrier_wait_start (gomp_barrier_t *bar)
+{
+  unsigned int ret = __atomic_load_n (&bar->generation, MEMMODEL_ACQUIRE) & ~3;
+  /* A memory barrier is needed before exiting from the various forms
+     of gomp_barrier_wait, to satisfy OpenMP API version 3.1 section
+     2.8.6 flush Construct, which says there is an implicit flush during
+     a barrier region.  This is a convenient place to add the barrier,
+     so we use MEMMODEL_ACQ_REL here rather than MEMMODEL_ACQUIRE.  */
+  ret += __atomic_add_fetch (&bar->awaited, -1, MEMMODEL_ACQ_REL) == 0;
+  return ret;
+}
+
+
+// 为了方便阅读下面的代码已经删除了与 task 相关的部分
+void
+gomp_team_barrier_wait_end (gomp_barrier_t *bar, gomp_barrier_state_t state)
+{
+  unsigned int generation, gen;
+
+  if (__builtin_expect ((state & 1) != 0, 0))
+    {
+      /* Next time we'll be awaiting TOTAL threads again.  */
+      struct gomp_thread *thr = gomp_thread ();
+      struct gomp_team *team = thr->ts.team;
+
+      bar->awaited = bar->total;
+      if (__builtin_expect (team->task_count, 0))
+	{
+	  gomp_barrier_handle_tasks (state);
+	  state &= ~1;
+	}
+      else
+	{
+	  __atomic_store_n (&bar->generation, state + 3, MEMMODEL_RELEASE);
+	  futex_wake ((int *) &bar->generation, INT_MAX);
+	  return;
+	}
+    }
+}
+
 ```
 
