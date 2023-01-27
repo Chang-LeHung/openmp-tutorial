@@ -180,3 +180,14 @@ gomp_team_barrier_wait_end (gomp_barrier_t *bar, gomp_barrier_state_t state)
 
 在上面的结构体 gomp_barrier_t 当中有语句 `unsigned total __attribute__((aligned (64)));` 后面的 __attribute__((aligned (64))) 表示这个字段需要使用 64 字节对齐，那么这个字段也占 64 字节，一般来说一个缓存行有 64 个字节的数据，也就是说这三个字段的数据不会存储在同一个缓存行，这样的话多个线程在操作这三个数据的时候不会产生假共享 (false sharing) 的问题，这可以很提高程序的效率。
 
+我们在前面讨论 critical construct 的时候谈到啦 critical 有匿名和命令两种方式：
+
+```c
+#pragma omp critical
+#pragma omp critical(name)
+```
+
+那么按道理来说 barrier 也应该有两种方式啊，那么为什么会没有呢？根据前面额程序分析，我们可以知道，最重要的一行代码是 `gomp_team_barrier_wait (&team->barrier);` 因为每一个线程都属于一个线程组，每个线程组内部都有一个 barrier ，因此当进行同步的时候只需要使用线程组内部的 barrier 即可，因此不需要使用命名的 barrier。
+
+
+
