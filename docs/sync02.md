@@ -345,9 +345,9 @@ datap = GOMP_single_copy_start ();
 if (datap == NULL)
   {
     body;
-  	data = allocate memory;
+  data = allocate memory;
     data.x = x;
-  	data.y = y;
+  data.y = y;
     GOMP_single_copy_end (&data);
   }
 else
