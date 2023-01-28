@@ -361,9 +361,10 @@ GOMP_barrier ();
 首先我们来了解一下 GOMP_single_copy_start 的返回值：
 
 - 如果这个线程的返回值是 NULL，那么就说明这个线程会执行 single construct 中的代码，反之线程就不会执行 single 中的代码。
-- 如果线程没有获得 single 代码块的执行权的话，那么这个线程将会被阻塞在函数 GOMP_single_copy_start 当中，只有 single 中的代码被执行完成之后线程才会被唤醒，具体来说是执行 single 代码块的线程进入到 GOMP_single_copy_end 中之后才会唤醒其他的线程，之所以这么做的原因是首先要得到最终的 x 的值，然后将这个值通过线程组之间的共享变量让没有执行 single 代码块的线程能够获得执行 single 代码块的线程当中的 x 的值。
+- 如果线程没有获得 single 代码块的执行权的话，那么这个线程将会被阻塞在函数 GOMP_single_copy_start 当中，只有 single 中的代码被执行完成之后线程才会被唤醒，具体来说是执行 single 代码块的线程进入到 GOMP_single_copy_end 中之后才会唤醒其他的线程，之所以这么做的原因是首先要得到最终的 x 的值，然后将这个值通过线程组之间的共享变量让没有执行 single 代码块的线程能够获得执行 single 代码块的线程当中的 x 的值，因为在没有执行完成 single 代码块之后是不能够知道 x 的最终的值的，而不知道 x 的最终的值，是不能够执行 `x = datap->x;` 的，因此需要将线程阻塞在 GOMP_single_copy_start 当中。
+- 如果线程的返回值不等于 NULL，那么就说明这个线程没有获取到 single 代码块的执行权，这个返回值 datap 是指向 threadprivate 数据的指针，比如上面的例子就是指向 x 的指针，因为可以做到申请 x, y 内存空间的时候是连续的，知道 x 的指针和 x 的大小就可以计算出线程私有变量 y 的地址，这是编译器可以做到的。
 
-上面的两个动态库函数的源代码如下所示：
+上面的两个动态库函数的源代码如下所示（详细的说明已经在注释当中）：
 
 ```c
 /* This routine is called when first encountering a SINGLE construct that
@@ -378,7 +379,9 @@ GOMP_single_copy_start (void)
 
   bool first;
   void *ret;
-
+	
+  // 这个函数可以返回 true 或者 false 如果线程需要执行 single 代码块
+  // 则返回 true, 否则返回 false
   first = gomp_work_share_start (0);
   
   if (first)
@@ -388,8 +391,12 @@ GOMP_single_copy_start (void)
     }
   else
     {
+    	// 我们在前面提到了 没有执行 single 代码块的线程会被阻塞在这个函数当中
+    	// 实际就是在这个位置进行阻塞的，以保证 copyprivate 当中的变量的值已经被更新啦
       gomp_team_barrier_wait (&thr->ts.team->barrier);
-
+			// 这里就是没执行 single 代码块的线程的函数返回值
+    	// 执行 single 代码块的线程会将 x, y 拷贝一份并且将指向 x, y 内存地址的
+    	// 指针赋值给变量 thr->ts.work_share->copyprivate; （在函数 GOMP_single_copy_end 当中可以看到具体的代码）
       ret = thr->ts.work_share->copyprivate;
       gomp_work_share_end_nowait ();
     }
@@ -408,7 +415,14 @@ GOMP_single_copy_end (void *data)
 
   if (team != NULL)
     {
+    	// 这个函数只有执行了 single 代码块的线程才会执行
+    	// 我们在前面已经提到了传给这个函数的参数是指向 x, y 
+    	// 内存地址的指针，现在将这个指针赋值给 thr->ts.work_share->copyprivate
+    	// 那么其他的线程就能够通过 thr->ts.work_share->copyprivate 获取到 x, y 
+    	// 的值啦
       thr->ts.work_share->copyprivate = data;
+    	// 因为前面线程都被阻塞了 需要等待所有的线程都到达之后才能够继续往后执行
+    	// 因此这个线程需要进入 barrier ，当所有的线程都到达之后那么就能够继续往后执行了
       gomp_team_barrier_wait (&team->barrier);
     }
 
@@ -416,7 +430,9 @@ GOMP_single_copy_end (void *data)
 }
 ```
 
+上面的整个流程如下图所示：
 
+![15](../images/15.png)
 
 ```asm
 00000000004011bb <main._omp_fn.0>:
