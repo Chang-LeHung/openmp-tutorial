@@ -288,65 +288,6 @@ GOMP_single_start (void)
 
 在分析上面的代码的时候需要注意 team->single_count 和 thr->ts.single_count，这是两个不同的数据。__sync_bool_compare_and_swap 是编译器内置的一个函数，这个函数的主要作用是将 &team->single_count 指向的数据和 single_count 进行比较，如果这两个数据相等则进行交换操作，如果操作成功就返回 true，否则就返回 false 。
 
-```asm
-00000000004011bb <main._omp_fn.0>:
-  4011bb:       55                      push   %rbp
-  4011bc:       48 89 e5                mov    %rsp,%rbp
-  4011bf:       53                      push   %rbx
-  4011c0:       48 83 ec 28             sub    $0x28,%rsp
-  4011c4:       48 89 7d d8             mov    %rdi,-0x28(%rbp)
-  4011c8:       e8 83 fe ff ff          callq  401050 <omp_get_thread_num@plt>
-  4011cd:       85 c0                   test   %eax,%eax
-  4011cf:       0f 85 91 00 00 00       jne    401266 <main._omp_fn.0+0xab>
-  4011d5:       e8 76 fe ff ff          callq  401050 <omp_get_thread_num@plt>
-  4011da:       64 89 04 25 fc ff ff    mov    %eax,%fs:0xfffffffffffffffc
-  4011e1:       ff 
-  4011e2:       64 8b 1c 25 fc ff ff    mov    %fs:0xfffffffffffffffc,%ebx
-  4011e9:       ff 
-  4011ea:       e8 61 fe ff ff          callq  401050 <omp_get_thread_num@plt>
-  4011ef:       89 da                   mov    %ebx,%edx
-  4011f1:       89 c6                   mov    %eax,%esi
-  4011f3:       bf 10 20 40 00          mov    $0x402010,%edi
-  4011f8:       b8 00 00 00 00          mov    $0x0,%eax
-  4011fd:       e8 5e fe ff ff          callq  401060 <printf@plt>
-  401202:       e8 89 fe ff ff          callq  401090 <GOMP_single_copy_start@plt>
-  401207:       48 85 c0                test   %rax,%rax
-  40120a:       74 35                   je     401241 <main._omp_fn.0+0x86>
-  40120c:       eb 27                   jmp    401235 <main._omp_fn.0+0x7a>
-  40120e:       e8 1d fe ff ff          callq  401030 <GOMP_barrier@plt>
-  401213:       64 8b 1c 25 fc ff ff    mov    %fs:0xfffffffffffffffc,%ebx
-  40121a:       ff 
-  40121b:       e8 30 fe ff ff          callq  401050 <omp_get_thread_num@plt>
-  401220:       89 da                   mov    %ebx,%edx
-  401222:       89 c6                   mov    %eax,%esi
-  401224:       bf 10 20 40 00          mov    $0x402010,%edi
-  401229:       b8 00 00 00 00          mov    $0x0,%eax
-  40122e:       e8 2d fe ff ff          callq  401060 <printf@plt>
-  401233:       eb 44                   jmp    401279 <main._omp_fn.0+0xbe>
-  401235:       8b 00                   mov    (%rax),%eax
-  401237:       64 89 04 25 fc ff ff    mov    %eax,%fs:0xfffffffffffffffc
-  40123e:       ff 
-  40123f:       eb cd                   jmp    40120e <main._omp_fn.0+0x53>
-  401241:       64 c7 04 25 fc ff ff    movl   $0xc8,%fs:0xfffffffffffffffc
-  401248:       ff c8 00 00 00 
-  40124d:       64 8b 04 25 fc ff ff    mov    %fs:0xfffffffffffffffc,%eax
-  401254:       ff 
-  401255:       89 45 ec                mov    %eax,-0x14(%rbp)
-  401258:       48 8d 45 ec             lea    -0x14(%rbp),%rax
-  40125c:       48 89 c7                mov    %rax,%rdi
-  40125f:       e8 dc fd ff ff          callq  401040 <GOMP_single_copy_end@plt>
-  401264:       eb a8                   jmp    40120e <main._omp_fn.0+0x53>
-  401266:       48 8b 45 d8             mov    -0x28(%rbp),%rax
-  40126a:       8b 00                   mov    (%rax),%eax
-  40126c:       64 89 04 25 fc ff ff    mov    %eax,%fs:0xfffffffffffffffc
-  401273:       ff 
-  401274:       e9 5c ff ff ff          jmpq   4011d5 <main._omp_fn.0+0x1a>
-  401279:       48 8b 5d f8             mov    -0x8(%rbp),%rbx
-  40127d:       c9                      leaveq 
-  40127e:       c3                      retq   
-  40127f:       90                      nop
-```
-
 ### #pragma omp single copyprivate(...)
 
 在这一小节当中我们将介绍一个比较少用的子句 copyprivate，并且分析 single construct 在处理这个子句的时候是如何进行处理的。
@@ -393,7 +334,7 @@ tid = 2 x = 200
 如果我们写的代码如下所示：
 
 ```c
-#pragma omp single copyprivate(x)
+#pragma omp single copyprivate(x, y)
   body;
 ```
 
@@ -404,11 +345,156 @@ datap = GOMP_single_copy_start ();
 if (datap == NULL)
   {
     body;
+  	data = allocate memory;
     data.x = x;
+  	data.y = y;
     GOMP_single_copy_end (&data);
   }
 else
+{
   x = datap->x;
+  y = datap->y;
+}
 GOMP_barrier ();
+```
+
+首先我们来了解一下 GOMP_single_copy_start 的返回值：
+
+- 如果这个线程的返回值是 NULL，那么就说明这个线程会执行 single construct 中的代码，反之线程就不会执行 single 中的代码。
+- 如果线程没有获得 single 代码块的执行权的话，那么这个线程将会被阻塞在函数 GOMP_single_copy_start 当中，只有 single 中的代码被执行完成之后线程才会被唤醒，具体来说是执行 single 代码块的线程进入到 GOMP_single_copy_end 中之后才会唤醒其他的线程，之所以这么做的原因是首先要得到最终的 x 的值，然后将这个值通过线程组之间的共享变量让没有执行 single 代码块的线程能够获得执行 single 代码块的线程当中的 x 的值。
+
+上面的两个动态库函数的源代码如下所示：
+
+```c
+/* This routine is called when first encountering a SINGLE construct that
+   does have a COPYPRIVATE clause.  Returns NULL if this is the thread
+   that should execute the clause; otherwise the return value is pointer
+   given to GOMP_single_copy_end by the thread that did execute the clause.  */
+
+void *
+GOMP_single_copy_start (void)
+{
+  struct gomp_thread *thr = gomp_thread ();
+
+  bool first;
+  void *ret;
+
+  first = gomp_work_share_start (0);
+  
+  if (first)
+    {
+      gomp_work_share_init_done ();
+      ret = NULL;
+    }
+  else
+    {
+      gomp_team_barrier_wait (&thr->ts.team->barrier);
+
+      ret = thr->ts.work_share->copyprivate;
+      gomp_work_share_end_nowait ();
+    }
+
+  return ret;
+}
+
+/* This routine is called when the thread that entered a SINGLE construct
+   with a COPYPRIVATE clause gets to the end of the construct.  */
+
+void
+GOMP_single_copy_end (void *data)
+{
+  struct gomp_thread *thr = gomp_thread ();
+  struct gomp_team *team = thr->ts.team;
+
+  if (team != NULL)
+    {
+      thr->ts.work_share->copyprivate = data;
+      gomp_team_barrier_wait (&team->barrier);
+    }
+
+  gomp_work_share_end_nowait ();
+}
+```
+
+
+
+```asm
+00000000004011bb <main._omp_fn.0>:
+  4011bb:       55                      push   %rbp
+  4011bc:       48 89 e5                mov    %rsp,%rbp
+  4011bf:       41 54                   push   %r12
+  4011c1:       53                      push   %rbx
+  4011c2:       48 83 ec 20             sub    $0x20,%rsp
+  4011c6:       48 89 7d d8             mov    %rdi,-0x28(%rbp)
+  4011ca:       e8 81 fe ff ff          callq  401050 <omp_get_thread_num@plt>
+  4011cf:       85 c0                   test   %eax,%eax
+  4011d1:       0f 85 c2 00 00 00       jne    401299 <main._omp_fn.0+0xde>
+  4011d7:       e8 74 fe ff ff          callq  401050 <omp_get_thread_num@plt>
+  4011dc:       64 89 04 25 f8 ff ff    mov    %eax,%fs:0xfffffffffffffff8
+  4011e3:       ff 
+  4011e4:       64 8b 1c 25 f8 ff ff    mov    %fs:0xfffffffffffffff8,%ebx
+  4011eb:       ff 
+  4011ec:       e8 5f fe ff ff          callq  401050 <omp_get_thread_num@plt>
+  4011f1:       89 da                   mov    %ebx,%edx
+  4011f3:       89 c6                   mov    %eax,%esi
+  4011f5:       bf 10 20 40 00          mov    $0x402010,%edi
+  4011fa:       b8 00 00 00 00          mov    $0x0,%eax
+  4011ff:       e8 5c fe ff ff          callq  401060 <printf@plt>
+  401204:       e8 87 fe ff ff          callq  401090 <GOMP_single_copy_start@plt>
+  401209:       48 85 c0                test   %rax,%rax
+  40120c:       74 4c                   je     40125a <main._omp_fn.0+0x9f>
+  40120e:       eb 33                   jmp    401243 <main._omp_fn.0+0x88>
+  401210:       e8 1b fe ff ff          callq  401030 <GOMP_barrier@plt>
+  401215:       64 44 8b 24 25 fc ff    mov    %fs:0xfffffffffffffffc,%r12d
+  40121c:       ff ff 
+  40121e:       64 8b 1c 25 f8 ff ff    mov    %fs:0xfffffffffffffff8,%ebx
+  401225:       ff 
+  401226:       e8 25 fe ff ff          callq  401050 <omp_get_thread_num@plt>
+  40122b:       44 89 e1                mov    %r12d,%ecx
+  40122e:       89 da                   mov    %ebx,%edx
+  401230:       89 c6                   mov    %eax,%esi
+  401232:       bf 21 20 40 00          mov    $0x402021,%edi
+  401237:       b8 00 00 00 00          mov    $0x0,%eax
+  40123c:       e8 1f fe ff ff          callq  401060 <printf@plt>
+  401241:       eb 69                   jmp    4012ac <main._omp_fn.0+0xf1>
+  # //////////// 没有获得 single construct 执行权的线程将执行下面的代码 ///////////
+  401243:       8b 50 04                mov    0x4(%rax),%edx
+  401246:       64 89 14 25 fc ff ff    mov    %edx,%fs:0xfffffffffffffffc
+  40124d:       ff 
+  40124e:       8b 00                   mov    (%rax),%eax
+  401250:       64 89 04 25 f8 ff ff    mov    %eax,%fs:0xfffffffffffffff8
+  401257:       ff 
+  # ////////////////////////////////////////////////////////////////////////
+  401258:       eb b6                   jmp    401210 <main._omp_fn.0+0x55>
+  # //////////// 获得 single construct 执行权的线程将执行下面的代码 //////////////
+  40125a:       64 c7 04 25 f8 ff ff    movl   $0xc8,%fs:0xfffffffffffffff8
+  401261:       ff c8 00 00 00 
+  401266:       64 c7 04 25 fc ff ff    movl   $0xffffff38,%fs:0xfffffffffffffffc
+  40126d:       ff 38 ff ff ff 
+  401272:       64 8b 04 25 fc ff ff    mov    %fs:0xfffffffffffffffc,%eax
+  401279:       ff 
+  40127a:       89 45 ec                mov    %eax,-0x14(%rbp)
+  40127d:       64 8b 04 25 f8 ff ff    mov    %fs:0xfffffffffffffff8,%eax
+  401284:       ff 
+  401285:       89 45 e8                mov    %eax,-0x18(%rbp)
+  401288:       48 8d 45 e8             lea    -0x18(%rbp),%rax
+  40128c:       48 89 c7                mov    %rax,%rdi
+  40128f:       e8 ac fd ff ff          callq  401040 <GOMP_single_copy_end@plt>
+  # ////////////////////////////////////////////////////////////////////////
+  401294:       e9 77 ff ff ff          jmpq   401210 <main._omp_fn.0+0x55>
+  401299:       48 8b 45 d8             mov    -0x28(%rbp),%rax
+  40129d:       8b 00                   mov    (%rax),%eax
+  40129f:       64 89 04 25 f8 ff ff    mov    %eax,%fs:0xfffffffffffffff8
+  4012a6:       ff 
+  4012a7:       e9 2b ff ff ff          jmpq   4011d7 <main._omp_fn.0+0x1c>
+  4012ac:       48 83 c4 20             add    $0x20,%rsp
+  4012b0:       5b                      pop    %rbx
+  4012b1:       41 5c                   pop    %r12
+  4012b3:       5d                      pop    %rbp
+  4012b4:       c3                      retq   
+  4012b5:       66 2e 0f 1f 84 00 00    nopw   %cs:0x0(%rax,%rax,1)
+  4012bc:       00 00 00 
+  4012bf:       90                      nop
+
 ```
 
