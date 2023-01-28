@@ -191,6 +191,8 @@ gomp_team_barrier_wait_end (gomp_barrier_t *bar, gomp_barrier_state_t state)
 
 ## Single Construct
 
+### #pragma omp single
+
 在本小节当中我们主要分析 single construct ，他的一半形式如下所示：
 
 ```c
@@ -285,4 +287,128 @@ GOMP_single_start (void)
 上面函数只有一个线程会执行返回 true ，其他的线程执行都会返回 false，因此可以保证只有一个线程执行，single construct 代码块，上面的执行的主要原理就是依赖比较并交换指令 (compare and swap , CAS) 指令实现的。
 
 在分析上面的代码的时候需要注意 team->single_count 和 thr->ts.single_count，这是两个不同的数据。__sync_bool_compare_and_swap 是编译器内置的一个函数，这个函数的主要作用是将 &team->single_count 指向的数据和 single_count 进行比较，如果这两个数据相等则进行交换操作，如果操作成功就返回 true，否则就返回 false 。
+
+```asm
+00000000004011bb <main._omp_fn.0>:
+  4011bb:       55                      push   %rbp
+  4011bc:       48 89 e5                mov    %rsp,%rbp
+  4011bf:       53                      push   %rbx
+  4011c0:       48 83 ec 28             sub    $0x28,%rsp
+  4011c4:       48 89 7d d8             mov    %rdi,-0x28(%rbp)
+  4011c8:       e8 83 fe ff ff          callq  401050 <omp_get_thread_num@plt>
+  4011cd:       85 c0                   test   %eax,%eax
+  4011cf:       0f 85 91 00 00 00       jne    401266 <main._omp_fn.0+0xab>
+  4011d5:       e8 76 fe ff ff          callq  401050 <omp_get_thread_num@plt>
+  4011da:       64 89 04 25 fc ff ff    mov    %eax,%fs:0xfffffffffffffffc
+  4011e1:       ff 
+  4011e2:       64 8b 1c 25 fc ff ff    mov    %fs:0xfffffffffffffffc,%ebx
+  4011e9:       ff 
+  4011ea:       e8 61 fe ff ff          callq  401050 <omp_get_thread_num@plt>
+  4011ef:       89 da                   mov    %ebx,%edx
+  4011f1:       89 c6                   mov    %eax,%esi
+  4011f3:       bf 10 20 40 00          mov    $0x402010,%edi
+  4011f8:       b8 00 00 00 00          mov    $0x0,%eax
+  4011fd:       e8 5e fe ff ff          callq  401060 <printf@plt>
+  401202:       e8 89 fe ff ff          callq  401090 <GOMP_single_copy_start@plt>
+  401207:       48 85 c0                test   %rax,%rax
+  40120a:       74 35                   je     401241 <main._omp_fn.0+0x86>
+  40120c:       eb 27                   jmp    401235 <main._omp_fn.0+0x7a>
+  40120e:       e8 1d fe ff ff          callq  401030 <GOMP_barrier@plt>
+  401213:       64 8b 1c 25 fc ff ff    mov    %fs:0xfffffffffffffffc,%ebx
+  40121a:       ff 
+  40121b:       e8 30 fe ff ff          callq  401050 <omp_get_thread_num@plt>
+  401220:       89 da                   mov    %ebx,%edx
+  401222:       89 c6                   mov    %eax,%esi
+  401224:       bf 10 20 40 00          mov    $0x402010,%edi
+  401229:       b8 00 00 00 00          mov    $0x0,%eax
+  40122e:       e8 2d fe ff ff          callq  401060 <printf@plt>
+  401233:       eb 44                   jmp    401279 <main._omp_fn.0+0xbe>
+  401235:       8b 00                   mov    (%rax),%eax
+  401237:       64 89 04 25 fc ff ff    mov    %eax,%fs:0xfffffffffffffffc
+  40123e:       ff 
+  40123f:       eb cd                   jmp    40120e <main._omp_fn.0+0x53>
+  401241:       64 c7 04 25 fc ff ff    movl   $0xc8,%fs:0xfffffffffffffffc
+  401248:       ff c8 00 00 00 
+  40124d:       64 8b 04 25 fc ff ff    mov    %fs:0xfffffffffffffffc,%eax
+  401254:       ff 
+  401255:       89 45 ec                mov    %eax,-0x14(%rbp)
+  401258:       48 8d 45 ec             lea    -0x14(%rbp),%rax
+  40125c:       48 89 c7                mov    %rax,%rdi
+  40125f:       e8 dc fd ff ff          callq  401040 <GOMP_single_copy_end@plt>
+  401264:       eb a8                   jmp    40120e <main._omp_fn.0+0x53>
+  401266:       48 8b 45 d8             mov    -0x28(%rbp),%rax
+  40126a:       8b 00                   mov    (%rax),%eax
+  40126c:       64 89 04 25 fc ff ff    mov    %eax,%fs:0xfffffffffffffffc
+  401273:       ff 
+  401274:       e9 5c ff ff ff          jmpq   4011d5 <main._omp_fn.0+0x1a>
+  401279:       48 8b 5d f8             mov    -0x8(%rbp),%rbx
+  40127d:       c9                      leaveq 
+  40127e:       c3                      retq   
+  40127f:       90                      nop
+```
+
+### #pragma omp single copyprivate(...)
+
+在这一小节当中我们将介绍一个比较少用的子句 copyprivate，并且分析 single construct 在处理这个子句的时候是如何进行处理的。
+
+我们首先来了解一下这个子句改如何使用，这个是用于在 single construct 当中，当一个变量在每个线程当中都有一个副本的时候，在执行完成 single construct 之后只有一个线程的数据会被修改，如果想让所有线程知道这个修改，那么就需要使用 copyprivate ，比如下面的例子：
+
+```c
+
+#include <stdio.h>
+#include <omp.h>
+
+int x = 100;
+#pragma omp threadprivate(x)
+
+int main()
+{
+#pragma omp parallel num_threads(4) default(none) copyin(x)
+  {
+    x = omp_get_thread_num();
+    printf("tid = %d x = %d\n", omp_get_thread_num(), x);
+#pragma omp single copyprivate(x)
+    {
+      x = 200;
+    }
+    printf("tid = %d x = %d\n", omp_get_thread_num(), x);
+  }
+  return 0;
+}
+```
+
+在上面的程序当中 x 是一个全局变量，`#pragma omp threadprivate(x)` 会让每个线程都会有一个全局变量 x  的线程本地的副本，copyin(x) 是将全局变量 x 的值拷贝到每个线程本地的变量副本当中。我们知道只会有一个线程执行 single construct ，那么只会有执行 single 代码的线程当中的 x 会变成 200，但是因为有 copyprivate，在线程执行完 single 代码块之后会将修改之后的 x 值赋给其他的线程，这样的话其他线程的 x 的值也变成 200 啦。上面的代码执行结果如下：
+
+```shell
+tid = 3 x = 3
+tid = 2 x = 2
+tid = 0 x = 0
+tid = 1 x = 1
+tid = 0 x = 200
+tid = 3 x = 200
+tid = 1 x = 200
+tid = 2 x = 200
+```
+
+如果我们写的代码如下所示：
+
+```c
+#pragma omp single copyprivate(x)
+  body;
+```
+
+上面的代码会被编译器翻译成下面的样子：
+
+```c
+datap = GOMP_single_copy_start ();
+if (datap == NULL)
+  {
+    body;
+    data.x = x;
+    GOMP_single_copy_end (&data);
+  }
+else
+  x = datap->x;
+GOMP_barrier ();
+```
 
