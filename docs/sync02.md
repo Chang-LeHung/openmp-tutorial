@@ -542,5 +542,13 @@ GOMP_single_copy_end (void *data)
 
 ## 总结
 
-在本篇文章当中主要给大家深入分析了 barrier construct 的实现原理，以及 single construct 的两种使用方式并且深入分析了 copy private 的实现原理，具体的线程私有数据是如果通过 OpenMP 库函数进行传递的。
+在本篇文章当中主要给大家深入分析了 barrier construct 的实现原理，以及 single construct 的两种使用方式并且深入分析了 copy private 的实现原理，具体的线程私有数据是如果通过 OpenMP 库函数进行传递的，整个过程还是有些复杂的，需要仔细的对整个流程进行思考才能够理解。以上就是本篇文章的所有内容希望大家有所收获！
+
+---
+
+更多精彩内容合集可访问项目：<https://github.com/Chang-LeHung/CSCore>
+
+关注公众号：一无是处的研究僧，了解更多计算机（Java、Python、计算机系统基础、算法与数据结构）知识。
+
+
 
