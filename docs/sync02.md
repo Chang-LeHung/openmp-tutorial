@@ -282,7 +282,7 @@ GOMP_single_start (void)
 }
 ```
 
-上面函数只有一个线程会执行返回 true ，其他的线程执行都会返回 false，因此可以保证只有一个线程执行，single construct 代码块，上面的执行的主要原理就是依赖 CAS 指令实现的。
+上面函数只有一个线程会执行返回 true ，其他的线程执行都会返回 false，因此可以保证只有一个线程执行，single construct 代码块，上面的执行的主要原理就是依赖比较并交换指令 (compare and swap , CAS) 指令实现的。
 
-
+在分析上面的代码的时候需要注意 team->single_count 和 thr->ts.single_count，这是两个不同的数据。__sync_bool_compare_and_swap 是编译器内置的一个函数，这个函数的主要作用是将 &team->single_count 指向的数据和 single_count 进行比较，如果这两个数据相等则进行交换操作，如果操作成功就返回 true，否则就返回 false 。
 

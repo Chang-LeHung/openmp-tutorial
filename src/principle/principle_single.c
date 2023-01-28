@@ -11,7 +11,6 @@ int main()
     {
       printf("Hello World\n");
     }
-
     printf("tid = %d\n", omp_get_thread_num());
   }
   return 0;
