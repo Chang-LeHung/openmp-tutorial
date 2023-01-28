@@ -268,13 +268,21 @@ GOMP_single_start (void)
   struct gomp_thread *thr = gomp_thread ();
   struct gomp_team *team = thr->ts.team;
   unsigned long single_count;
-
+	
   if (__builtin_expect (team == NULL, 0))
     return true;
-
+	// 首先获得线程本地保存的遇到的 single construct 数量
+  // 并且将这个数量进行加一操作 因为又遇到了一次
   single_count = thr->ts.single_count++;
+  // 如果下面的操作还没有完成 线程组中保存的 single_count 和 线程
+  // 本地的 single_count 是相等的，因此才可以进行下面的比较并交换
+  // 操作，当有一个线程成功之后 后面的线程执行下面的语句都会返回 false
   return __sync_bool_compare_and_swap (&team->single_count, single_count,
 				       single_count + 1L);
 }
 ```
+
+上面函数只有一个线程会执行返回 true ，其他的线程执行都会返回 false，因此可以保证只有一个线程执行，single construct 代码块，上面的执行的主要原理就是依赖 CAS 指令实现的。
+
+
 
