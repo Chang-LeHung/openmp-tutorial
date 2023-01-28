@@ -2,7 +2,7 @@
 
 ## 前言
 
-在上面文章当中我们主要分析了 flush, critical, master 这三个 construct 的实现原理。在本篇文章当中我们将主要分析另外三个 construct : barrier 、ordered 和 single 。
+在上面文章当中我们主要分析了 flush, critical, master 这三个 construct 的实现原理。在本篇文章当中我们将主要分析另外三个 construct : barrier 和 single 。
 
 ## Barrier Construct
 
@@ -295,12 +295,12 @@ GOMP_single_start (void)
 我们首先来了解一下这个子句改如何使用，这个是用于在 single construct 当中，当一个变量在每个线程当中都有一个副本的时候，在执行完成 single construct 之后只有一个线程的数据会被修改，如果想让所有线程知道这个修改，那么就需要使用 copyprivate ，比如下面的例子：
 
 ```c
-
 #include <stdio.h>
 #include <omp.h>
 
 int x = 100;
-#pragma omp threadprivate(x)
+int y = -100;
+#pragma omp threadprivate(x, y)
 
 int main()
 {
@@ -308,11 +308,12 @@ int main()
   {
     x = omp_get_thread_num();
     printf("tid = %d x = %d\n", omp_get_thread_num(), x);
-#pragma omp single copyprivate(x)
+#pragma omp single copyprivate(x, y)
     {
       x = 200;
+      y = -200;
     }
-    printf("tid = %d x = %d\n", omp_get_thread_num(), x);
+    printf("tid = %d x = %d y = %d\n", omp_get_thread_num(), x, y);
   }
   return 0;
 }
@@ -321,14 +322,14 @@ int main()
 在上面的程序当中 x 是一个全局变量，`#pragma omp threadprivate(x)` 会让每个线程都会有一个全局变量 x  的线程本地的副本，copyin(x) 是将全局变量 x 的值拷贝到每个线程本地的变量副本当中。我们知道只会有一个线程执行 single construct ，那么只会有执行 single 代码的线程当中的 x 会变成 200，但是因为有 copyprivate，在线程执行完 single 代码块之后会将修改之后的 x 值赋给其他的线程，这样的话其他线程的 x 的值也变成 200 啦。上面的代码执行结果如下：
 
 ```shell
-tid = 3 x = 3
 tid = 2 x = 2
+tid = 3 x = 3
 tid = 0 x = 0
 tid = 1 x = 1
-tid = 0 x = 200
-tid = 3 x = 200
-tid = 1 x = 200
-tid = 2 x = 200
+tid = 3 x = 200 y = -200
+tid = 0 x = 200 y = -200
+tid = 2 x = 200 y = -200
+tid = 1 x = 200 y = -200
 ```
 
 如果我们写的代码如下所示：
@@ -434,6 +435,24 @@ GOMP_single_copy_end (void *data)
 
 ![15](../images/15.png)
 
+我们在来看一下前面提到的使用 single copyprivate(x, y) 的程序
+
+```c
+#pragma omp parallel num_threads(4) default(none) copyin(x)
+  {
+    x = omp_get_thread_num();
+    printf("tid = %d x = %d\n", omp_get_thread_num(), x);
+#pragma omp single copyprivate(x, y)
+    {
+      x = 200;
+      y = -200;
+    }
+    printf("tid = %d x = %d y = %d\n", omp_get_thread_num(), x, y);
+  }
+```
+
+编译之后的汇编程序是怎么样的（重要的部分已在代码当中进行标出）：
+
 ```asm
 00000000004011bb <main._omp_fn.0>:
   4011bb:       55                      push   %rbp
@@ -474,7 +493,8 @@ GOMP_single_copy_end (void *data)
   40123c:       e8 1f fe ff ff          callq  401060 <printf@plt>
   401241:       eb 69                   jmp    4012ac <main._omp_fn.0+0xf1>
   # //////////// 没有获得 single construct 执行权的线程将执行下面的代码 ///////////
-  401243:       8b 50 04                mov    0x4(%rax),%edx
+  # 下面的 5 条汇编指令其实就是将 x, y 的数据拷贝到线程的私有数据 thread local storage
+  401243:       8b 50 04                mov    0x4(%rax),%edx # 
   401246:       64 89 14 25 fc ff ff    mov    %edx,%fs:0xfffffffffffffffc
   40124d:       ff 
   40124e:       8b 00                   mov    (%rax),%eax
@@ -483,16 +503,23 @@ GOMP_single_copy_end (void *data)
   # ////////////////////////////////////////////////////////////////////////
   401258:       eb b6                   jmp    401210 <main._omp_fn.0+0x55>
   # //////////// 获得 single construct 执行权的线程将执行下面的代码 //////////////
+  # 下面的代码就是 x = 200
   40125a:       64 c7 04 25 f8 ff ff    movl   $0xc8,%fs:0xfffffffffffffff8
   401261:       ff c8 00 00 00 
+  # 下面的代码就是 y = -200
   401266:       64 c7 04 25 fc ff ff    movl   $0xffffff38,%fs:0xfffffffffffffffc
   40126d:       ff 38 ff ff ff 
+  # 下面的代码就是将 y 的值保存到 eax 寄存器
   401272:       64 8b 04 25 fc ff ff    mov    %fs:0xfffffffffffffffc,%eax
   401279:       ff 
+  # 将 eax 寄存器的值保存到栈上
   40127a:       89 45 ec                mov    %eax,-0x14(%rbp)
+  # 将 x 的值保存到 eax 寄存器
   40127d:       64 8b 04 25 f8 ff ff    mov    %fs:0xfffffffffffffff8,%eax
   401284:       ff 
+  # 将 eax 寄存器的值保存到栈上
   401285:       89 45 e8                mov    %eax,-0x18(%rbp)
+  # 上面的几行代码就完成了线程私有数据的拷贝 下面的代码就是将栈上保存 x, y 的内存地址通过参数传递给函数 GOMP_single_copy_end 这样就可以保存在 thr->ts.work_share->copyprivate 上啦
   401288:       48 8d 45 e8             lea    -0x18(%rbp),%rax
   40128c:       48 89 c7                mov    %rax,%rdi
   40128f:       e8 ac fd ff ff          callq  401040 <GOMP_single_copy_end@plt>
@@ -511,6 +538,9 @@ GOMP_single_copy_end (void *data)
   4012b5:       66 2e 0f 1f 84 00 00    nopw   %cs:0x0(%rax,%rax,1)
   4012bc:       00 00 00 
   4012bf:       90                      nop
-
 ```
+
+## 总结
+
+在本篇文章当中主要给大家深入分析了 barrier construct 的实现原理，以及 single construct 的两种使用方式并且深入分析了 copy private 的实现原理，具体的线程私有数据是如果通过 OpenMP 库函数进行传递的。
 
