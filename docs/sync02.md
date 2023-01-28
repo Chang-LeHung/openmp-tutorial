@@ -189,5 +189,95 @@ gomp_team_barrier_wait_end (gomp_barrier_t *bar, gomp_barrier_state_t state)
 
 那么按道理来说 barrier 也应该有两种方式啊，那么为什么会没有呢？根据前面的程序分析，我们可以知道，最重要的一行代码是 `gomp_team_barrier_wait (&team->barrier);` 因为每一个线程都属于一个线程组，每个线程组内部都有一个 barrier ，因此当进行同步的时候只需要使用线程组内部的 barrier 即可，因此不需要使用命名的 barrier。
 
+## Single Construct
 
+在本小节当中我们主要分析 single construct ，他的一半形式如下所示：
+
+```c
+#pragma omp single
+{
+  body;
+}
+```
+
+类似于上面的结构的代码会被编译器编译成如下形式：
+
+```c
+if (GOMP_single_start ())
+  body;
+GOMP_barrier ();
+```
+
+关于 GOMP_barrier 函数我们在前面的内容当中已经进行了详细的分析，他的功能就是使用一个线程组内部的 barrier 变量，当所有的线程都到达这个位置之后才放行所有线程，让他们继续执行，如果线程组的线程没有全部到达同步点，则到达同步点的线程会被挂起。
+
+我们使用一个实际的例子进行分析，看一下最终被编译成的源程序是什么样子：
+
+
+
+```c
+#include <stdio.h>
+#include <omp.h>
+
+int main()
+{
+#pragma omp parallel num_threads(4) default(none)
+  {
+#pragma omp single
+    {
+      printf("Hello World\n");
+    }
+
+    printf("tid = %d\n", omp_get_thread_num());
+  }
+  return 0;
+}
+```
+
+上面的 parallel 代码块被编译之后的反汇编程序如下所示：
+
+```c
+00000000004011aa <main._omp_fn.0>:
+  4011aa:       55                      push   %rbp
+  4011ab:       48 89 e5                mov    %rsp,%rbp
+  4011ae:       48 83 ec 10             sub    $0x10,%rsp
+  4011b2:       48 89 7d f8             mov    %rdi,-0x8(%rbp)
+  4011b6:       e8 c5 fe ff ff          callq  401080 <GOMP_single_start@plt>
+  4011bb:       3c 01                   cmp    $0x1,%al
+  4011bd:       74 1d                   je     4011dc <main._omp_fn.0+0x32>
+  4011bf:       e8 7c fe ff ff          callq  401040 <GOMP_barrier@plt>
+  4011c4:       e8 87 fe ff ff          callq  401050 <omp_get_thread_num@plt>
+  4011c9:       89 c6                   mov    %eax,%esi
+  4011cb:       bf 10 20 40 00          mov    $0x402010,%edi
+  4011d0:       b8 00 00 00 00          mov    $0x0,%eax
+  4011d5:       e8 86 fe ff ff          callq  401060 <printf@plt>
+  4011da:       eb 0c                   jmp    4011e8 <main._omp_fn.0+0x3e>
+  4011dc:       bf 1a 20 40 00          mov    $0x40201a,%edi
+  4011e1:       e8 4a fe ff ff          callq  401030 <puts@plt>
+  4011e6:       eb d7                   jmp    4011bf <main._omp_fn.0+0x15>
+  4011e8:       c9                      leaveq 
+  4011e9:       c3                      retq   
+  4011ea:       66 0f 1f 44 00 00       nopw   0x0(%rax,%rax,1)
+
+```
+
+从上面的汇编程序我们可以看到，被编译的程序确实调用了函数 GOMP_single_start，如果这个函数的返回值不等于 true 的时候就会执行函数 GOMP_barrier 。这和我们上面的分析是一样的。
+
+现在最主要的函数就是 GOMP_single_start ，他的源代码如下所示：
+
+```c
+bool
+GOMP_single_start (void)
+{
+  struct gomp_thread *thr = gomp_thread ();
+  struct gomp_team *team = thr->ts.team;
+  unsigned long single_count;
+
+  if (__builtin_expect (team == NULL, 0))
+    return true;
+
+  single_count = thr->ts.single_count++;
+  return __sync_bool_compare_and_swap (&team->single_count, single_count,
+				       single_count + 1L);
+}
+```
 
