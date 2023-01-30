@@ -2,7 +2,7 @@
 
 ## 前言
 
-在上面文章当中我们主要分析了 flush, critical, master 这三个 construct 的实现原理。在本篇文章当中我们将主要分析另外三个 construct : barrier 和 single 。
+在上面文章当中我们主要分析了 flush, critical, master 这三个 construct 的实现原理。在本篇文章当中我们将主要分析另外两个 construct : barrier 和 single 。
 
 ## Barrier Construct
 
@@ -98,7 +98,7 @@ typedef unsigned int gomp_barrier_state_t;
 
 - total，这个变量表示一个需要等待多少个线程到达同步点之后才能够继续往后执行。
 - awaited，这个变量表示还需要等待多少个线程。
-- 初始化的时候 total 和 awaited 这两个变量是相等的。
+- 初始化的时候 total 和 awaited 这两个变量是相等的，当有一个线程到达之后 awaited 就减去 1 。
 - generation 这个变量与 OpenMP 当中的 task 有关，这个变量稍微有点复杂，由于我们的分析不涉及到 OpenMP 当中的任务，因此这类对这个变量不做分析，这个变量的初始值等于 0。
 
 结构体 gomp_barrier_t 初始化函数如下所示：

@@ -10,3 +10,4 @@ openmp tutorial series
 - [OpenMp Parallel Construct 实现原理与源码分析](./docs/parallel.md)
 - [OpenMP 线程同步 Construct 实现原理以及源码分析（上）](./docs/sync.md)
 - [OpenMP 线程同步 Construct 实现原理以及源码分析（下）](./docs/sync02.md)
+- [OpenMP Section Construct 设计与实现](./docs/sections.md)
