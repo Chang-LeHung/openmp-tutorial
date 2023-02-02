@@ -1,4 +1,4 @@
-# OpenMP Section Construct 设计与实现
+# OpenMP Section Construct 实现原理以及源码分析
 
 ## 前言
 

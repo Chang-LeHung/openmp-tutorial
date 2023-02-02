@@ -8,7 +8,7 @@
 
 int main()
 {
-#pragma omp parallel for ordered num_threads(4) default(none)
+#pragma omp parallel for ordered num_threads(4) default(none) schedule(dynamic)
   for(int i = 0; i < 8; ++i) {
 #pragma omp ordered
     {
