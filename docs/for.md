@@ -113,7 +113,7 @@ for (i = lb; i <= ub; i++)
 void subfunction (void *data)
 {
   long _s0, _e0;
-  while (GOMP_parallel_loop_dynamic_start (&_s0, &_e0))
+  while (GOMP_loop_dynamic_next (&_s0, &_e0))
   {
     long _e1 = _e0, i;
     for (i = _s0; i < _e1; i++)
@@ -144,7 +144,7 @@ gomp_parallel_loop_start (void (*fn) (void *), void *data,
 			  long chunk_size)
 {
   struct gomp_team *team;
-	// 解析具体创建多少个线程
+  // 解析具体创建多少个线程
   num_threads = gomp_resolve_num_threads (num_threads, 0);
   // 创建一个含有 num_threads 个线程的线程组
   team = gomp_new_team (num_threads);
@@ -178,18 +178,83 @@ enum gomp_schedule_type
 
 
 ```c
-static void
-gomp_parallel_loop_start (void (*fn) (void *), void *data,
-			  unsigned num_threads, long start, long end,
-			  long incr, enum gomp_schedule_type sched,
-			  long chunk_size)
+static bool
+gomp_loop_dynamic_next (long *istart, long *iend)
 {
-  struct gomp_team *team;
+  bool ret;
+  ret = gomp_iter_dynamic_next (istart, iend);
+  return ret;
+}
 
-  num_threads = gomp_resolve_num_threads (num_threads, 0);
-  team = gomp_new_team (num_threads);
-  gomp_loop_init (&team->work_shares[0], start, end, incr, sched, chunk_size);
-  gomp_team_start (fn, data, num_threads, team);
+bool
+gomp_iter_dynamic_next (long *pstart, long *pend)
+{
+  struct gomp_thread *thr = gomp_thread ();
+  struct gomp_work_share *ws = thr->ts.work_share;
+  long start, end, nend, chunk, incr;
+
+  end = ws->end;
+  incr = ws->incr;
+  chunk = ws->chunk_size;
+
+  if (__builtin_expect (ws->mode, 1))
+    {
+      long tmp = __sync_fetch_and_add (&ws->next, chunk);
+      if (incr > 0)
+	{
+	  if (tmp >= end)
+	    return false;
+	  nend = tmp + chunk;
+	  if (nend > end)
+	    nend = end;
+	  *pstart = tmp;
+	  *pend = nend;
+	  return true;
+	}
+      else
+	{
+	  if (tmp <= end)
+	    return false;
+	  nend = tmp + chunk;
+	  if (nend < end)
+	    nend = end;
+	  *pstart = tmp;
+	  *pend = nend;
+	  return true;
+	}
+    }
+
+  start = ws->next;
+  while (1)
+    {
+      long left = end - start;
+      long tmp;
+
+      if (start == end)
+	return false;
+
+      if (incr < 0)
+	{
+	  if (chunk < left)
+	    chunk = left;
+	}
+      else
+	{
+	  if (chunk > left)
+	    chunk = left;
+	}
+      nend = start + chunk;
+
+      tmp = __sync_val_compare_and_swap (&ws->next, start, nend);
+      if (__builtin_expect (tmp == start, 1))
+	break;
+
+      start = tmp;
+    }
+
+  *pstart = start;
+  *pend = nend;
+  return true;
 }
 ```
 
