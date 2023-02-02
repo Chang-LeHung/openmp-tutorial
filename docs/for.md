@@ -102,18 +102,9 @@ int main()
 
 我们使用下面的代码来分析一下动态调度的情况下整个程序的执行流程是怎么样的：
 ```c
-#include <stdio.h>
-#include <omp.h>
-
-int main()
-{
-#pragma omp parallel for num_threads(4) default(none) schedule(dynamic, 1)
-  for(int i = 0; i < 12; ++i)
-  {
-    printf("i = %d tid = %d\n", i, omp_get_thread_num());
-  }
-  return 0;
-}
+#pragma omp parallel for num_threads(t) schedule(dynamic, size)
+for (i = lb; i <= ub; i++)
+  body;
 ```
 
 编译器会将上面的程序编译成下面的形式：
@@ -131,20 +122,10 @@ void subfunction (void *data)
   GOMP_loop_end_nowait ();
 }
 
-GOMP_parallel_loop_dynamic_start (subfunction, NULL, 0, lb, ub+1, 1, 0);
+GOMP_parallel_loop_dynamic_start (subfunction, NULL, t, lb, ub+1, 1, size);
 subfunction (NULL);
 GOMP_parallel_end ();
 ```
-
-在上面的程序当中 GOMP_parallel_loop_dynamic_start，有 7 个参数，我们接下来仔细解释一下这七个参数的含义：
-
-- fn，函数指针也就是并行域被编译之后的函数。
-- data，指向共享或者私有的数据，在并行域当中可能会使用外部的一些变量。
-- num_threads，并行域当中指定启动线程的个数。
-- start，for 循环迭代的初始值，比如 for(int i = 0; ;) 这个 start 就是 0 。
-- end，for 循环迭代的最终值，比如 for(int i = 0; i < 100; i++) 这个 end 就是 100 。
-- incr，这个值一般都是 1 。
-- chunk_size，这个就是给一个线程划分块的时候一个块的大小，比如 schedule(dynamic, 1)，这个 chunk_size 就等于 1 。
 
 ```c
 void
@@ -156,7 +137,43 @@ GOMP_parallel_loop_dynamic_start (void (*fn) (void *), void *data,
 			    GFS_DYNAMIC, chunk_size);
 }
 
+static void
+gomp_parallel_loop_start (void (*fn) (void *), void *data,
+			  unsigned num_threads, long start, long end,
+			  long incr, enum gomp_schedule_type sched,
+			  long chunk_size)
+{
+  struct gomp_team *team;
+	// 解析具体创建多少个线程
+  num_threads = gomp_resolve_num_threads (num_threads, 0);
+  // 创建一个含有 num_threads 个线程的线程组
+  team = gomp_new_team (num_threads);
+  // 对线程组的数据进行初始化操作
+  gomp_loop_init (&team->work_shares[0], start, end, incr, sched, chunk_size);
+  // 启动 num_threads 个线程执行函数 fn 
+  gomp_team_start (fn, data, num_threads, team);
+}
+
+enum gomp_schedule_type
+{
+  GFS_RUNTIME, // runtime 调度方式
+  GFS_STATIC,	 // static  调度方式
+  GFS_DYNAMIC, // dynamic 调度方式
+  GFS_GUIDED,	 // guided  调度方式
+  GFS_AUTO     // auto    调度方式
+};
+
 ```
+
+在上面的程序当中 GOMP_parallel_loop_dynamic_start，有 7 个参数，我们接下来仔细解释一下这七个参数的含义：
+
+- fn，函数指针也就是并行域被编译之后的函数。
+- data，指向共享或者私有的数据，在并行域当中可能会使用外部的一些变量。
+- num_threads，并行域当中指定启动线程的个数。
+- start，for 循环迭代的初始值，比如 for(int i = 0; ;) 这个 start 就是 0 。
+- end，for 循环迭代的最终值，比如 for(int i = 0; i < 100; i++) 这个 end 就是 100 。
+- incr，这个值一般都是 1 。
+- chunk_size，这个就是给一个线程划分块的时候一个块的大小，比如 schedule(dynamic, 1)，这个 chunk_size 就等于 1 。
 
 
 
