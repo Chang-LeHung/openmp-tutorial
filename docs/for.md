@@ -55,7 +55,7 @@ int main()
   400559:       8b 7d f4                mov    -0xc(%rbp),%edi
   40055c:       8b 75 f8                mov    -0x8(%rbp),%esi
   40055f:       8b 55 fc                mov    -0x4(%rbp),%edx
-  400562:       8b 45 18                mov    0x18(%rbp),%eax
+  400562:       8b 45 18                mov    0x18(%rbp),%eax # a8
   400565:       8b 4d e8                mov    -0x18(%rbp),%ecx
   400568:       89 4c 24 10             mov    %ecx,0x10(%rsp)
   40056c:       8b 4d ec                mov    -0x14(%rbp),%ecx
@@ -65,8 +65,8 @@ int main()
   400579:       41 89 f9                mov    %edi,%r9d
   40057c:       41 89 f0                mov    %esi,%r8d
   40057f:       89 d1                   mov    %edx,%ecx
-  400581:       8b 55 10                mov    0x10(%rbp),%edx
-  400584:       89 c6                   mov    %eax,%esi
+  400581:       8b 55 10                mov    0x10(%rbp),%edx # a7
+  400584:       89 c6                   mov    %eax,%esi # a8
   400586:       bf 64 06 40 00          mov    $0x400664,%edi
   40058b:       b8 00 00 00 00          mov    $0x0,%eax
   400590:       e8 8b fe ff ff          callq  400420 <printf@plt>
@@ -76,15 +76,15 @@ int main()
   400597:       55                      push   %rbp
   400598:       48 89 e5                mov    %rsp,%rbp
   40059b:       48 83 ec 10             sub    $0x10,%rsp
-  40059f:       c7 44 24 08 08 00 00    movl   $0x8,0x8(%rsp)
+  40059f:       c7 44 24 08 08 00 00    movl   $0x8,0x8(%rsp) # 保存参数 8 
   4005a6:       00 
-  4005a7:       c7 04 24 07 00 00 00    movl   $0x7,(%rsp)
-  4005ae:       41 b9 06 00 00 00       mov    $0x6,%r9d
-  4005b4:       41 b8 05 00 00 00       mov    $0x5,%r8d
-  4005ba:       b9 04 00 00 00          mov    $0x4,%ecx
-  4005bf:       ba 03 00 00 00          mov    $0x3,%edx
-  4005c4:       be 02 00 00 00          mov    $0x2,%esi
-  4005c9:       bf 01 00 00 00          mov    $0x1,%edi
+  4005a7:       c7 04 24 07 00 00 00    movl   $0x7,(%rsp) # 保存参数 7 
+  4005ae:       41 b9 06 00 00 00       mov    $0x6,%r9d # 保存参数 6 
+  4005b4:       41 b8 05 00 00 00       mov    $0x5,%r8d # 保存参数 5 
+  4005ba:       b9 04 00 00 00          mov    $0x4,%ecx # 保存参数 4 
+  4005bf:       ba 03 00 00 00          mov    $0x3,%edx # 保存参数 3 
+  4005c4:       be 02 00 00 00          mov    $0x2,%esi # 保存参数 2 
+  4005c9:       bf 01 00 00 00          mov    $0x1,%edi # 保存参数 1
   4005ce:       e8 6a ff ff ff          callq  40053d <echo>
   4005d3:       b8 00 00 00 00          mov    $0x0,%eax
   4005d8:       c9                      leaveq 
@@ -92,7 +92,11 @@ int main()
   4005da:       66 0f 1f 44 00 00       nopw   0x0(%rax,%rax,1)
 ```
 
+从上面的汇编程序我们可以知道 1 - 6，这几个参数确实是通过寄存器传递的，对应的寄存器就是上文当中我们提到不同的参数对应的寄存器。但是参数 7 和参数 8 是保存在栈上的。根据上面的 main 函数的汇编程序分析，他对应的栈帧的内存布局如下所示：
+
 ![](../images/16.png)
+
+我们在来分析一下 echo 函数当中 printf 函数参数的传递情况，第二个参数和第三个参数分别是 a8, 17，应该分别保存到寄存器 rsi/esi, rdx/edx 当中，在上面的汇编代码当中已经使用注释的方式进行标注出来了，从下往上进行分析可以看到 a8 保存在位置 0x18(%rbp)，a7 保存在 0x10(%rbp)，这个地址正式 main 函数保存 a7, a8 的位置，具体可以结合上面的内存布局图进行分析。
 
 ## dynamic 调度方式分析
 
