@@ -119,11 +119,13 @@ void subfunction (void *data)
     for (i = _s0; i < _e1; i++)
       body;
   }
+  // GOMP_loop_end_nowait 这个函数的主要作用就是释放数据的内存空间 在后文当中不进行分析
   GOMP_loop_end_nowait ();
 }
 
 GOMP_parallel_loop_dynamic_start (subfunction, NULL, t, lb, ub+1, 1, size);
 subfunction (NULL);
+// 这个函数在前面的很多文章已经分析过 本文也不在进行分析
 GOMP_parallel_end ();
 ```
 
@@ -289,3 +291,156 @@ gomp_iter_dynamic_next 函数当中有两种情况的划分方式：
 - 当数据块相对比较小的时候，说明划分的次数就会相对多一点，在这种情况下如果使用 CAS 的话成功的概率就会相对低，对应的就会降低程序执行的效率，因此选择 __sync_fetch_and_add 以减少多线程的竞争情况，降低 CPU 的消耗。
 
 - 当数据块比较大的时候，说明划分的次数相对比较小，就使用比较并交换的操作（CAS），这样多个线程在进行竞争的时候开销就比较小。
+
+在上面的文章当中我们提到了，gomp_loop_init 函数是对线程共享数据 work_share 进行初始化操作，如果你对具体 work_share 中的数据初始化规则感兴趣，下面是对其初始化的程序：
+
+```c
+static inline void
+gomp_loop_init (struct gomp_work_share *ws, long start, long end, long incr,
+		enum gomp_schedule_type sched, long chunk_size)
+{
+  ws->sched = sched;
+  ws->chunk_size = chunk_size;
+  /* Canonicalize loops that have zero iterations to ->next == ->end.  */
+  ws->end = ((incr > 0 && start > end) || (incr < 0 && start < end))
+	    ? start : end;
+  ws->incr = incr;
+  ws->next = start;
+  if (sched == GFS_DYNAMIC)
+    {
+      ws->chunk_size *= incr;
+
+#ifdef HAVE_SYNC_BUILTINS
+      {
+	/* For dynamic scheduling prepare things to make each iteration
+	   faster.  */
+	struct gomp_thread *thr = gomp_thread ();
+	struct gomp_team *team = thr->ts.team;
+	long nthreads = team ? team->nthreads : 1;
+
+	if (__builtin_expect (incr > 0, 1))
+	  {
+	    /* Cheap overflow protection.  */
+	    if (__builtin_expect ((nthreads | ws->chunk_size)
+				  >= 1UL << (sizeof (long)
+					     * __CHAR_BIT__ / 2 - 1), 0))
+	      ws->mode = 0;
+	    else
+	      ws->mode = ws->end < (LONG_MAX
+				    - (nthreads + 1) * ws->chunk_size);
+	  }
+	/* Cheap overflow protection.  */
+	else if (__builtin_expect ((nthreads | -ws->chunk_size)
+				   >= 1UL << (sizeof (long)
+					      * __CHAR_BIT__ / 2 - 1), 0))
+	  ws->mode = 0;
+	else
+	  ws->mode = ws->end > (nthreads + 1) * -ws->chunk_size - LONG_MAX;
+      }
+#endif
+    }
+}
+```
+
+## 实例分析
+
+在本小节当中我们将使用一个实际的例子去分析上面我们所谈到的整个过程：
+
+```c
+
+
+#include <stdio.h>
+#include <omp.h>
+
+int main()
+{
+#pragma omp parallel for num_threads(4) default(none) schedule(dynamic, 2)
+  for(int i = 0; i < 12; ++i)
+  {
+    printf("i = %d tid = %d\n", i, omp_get_thread_num());
+  }
+  return 0;
+}
+```
+
+上面的程序被编译之后的结果如下所示，具体的程序分析和注释都在下面的汇编程序当中：
+
+```asm
+000000000040073d <main>:
+  40073d:       55                      push   %rbp
+  40073e:       48 89 e5                mov    %rsp,%rbp
+  400741:       48 83 ec 20             sub    $0x20,%rsp
+  400745:       48 c7 04 24 02 00 00    movq   $0x2,(%rsp) # 这个就是 chunk size 符合上面的代码当中指定的 2
+  40074c:       00 
+  40074d:       41 b9 01 00 00 00       mov    $0x1,%r9d # 因为是从小到达 incr 这个参数是 1
+  400753:       41 b8 0c 00 00 00       mov    $0xc,%r8d # 这个参数是 end 符合上面的程序 12
+  400759:       b9 00 00 00 00          mov    $0x0,%ecx # 这个参数是 start 符合上面的程序 1
+  40075e:       ba 04 00 00 00          mov    $0x4,%edx # num_threads(4) 线程的个数是 4
+  400763:       be 00 00 00 00          mov    $0x0,%esi # 因为上面的代码当中并没有在并行域当中使用数据 因此这个数据为 0 也就是 NULL 
+  400768:       bf 88 07 40 00          mov    $0x400788,%edi # 函数指针 main._omp_fn.0
+  40076d:       e8 ce fe ff ff          callq  400640 <GOMP_parallel_loop_dynamic_start@plt>
+  400772:       bf 00 00 00 00          mov    $0x0,%edi
+  400777:       e8 0c 00 00 00          callq  400788 <main._omp_fn.0>
+  40077c:       e8 5f fe ff ff          callq  4005e0 <GOMP_parallel_end@plt>
+  400781:       b8 00 00 00 00          mov    $0x0,%eax
+  400786:       c9                      leaveq 
+  400787:       c3                      retq
+  
+0000000000400788 <main._omp_fn.0>:
+  400788:       55                      push   %rbp
+  400789:       48 89 e5                mov    %rsp,%rbp
+  40078c:       53                      push   %rbx
+  40078d:       48 83 ec 38             sub    $0x38,%rsp
+  400791:       48 89 7d c8             mov    %rdi,-0x38(%rbp)
+  400795:       c7 45 ec 00 00 00 00    movl   $0x0,-0x14(%rbp)
+  40079c:       48 8d 55 e0             lea    -0x20(%rbp),%rdx
+  4007a0:       48 8d 45 d8             lea    -0x28(%rbp),%rax
+  4007a4:       48 89 d6                mov    %rdx,%rsi
+  4007a7:       48 89 c7                mov    %rax,%rdi
+  4007aa:       e8 21 fe ff ff          callq  4005d0 <GOMP_loop_dynamic_next@plt>
+  4007af:       84 c0                   test   %al,%al # 如果 GOMP_loop_dynamic_next 返回值是 0 则跳转到 4007fb 执行函数 GOMP_loop_end_nowait
+  4007b1:       74 48                   je     4007fb <main._omp_fn.0+0x73>
+  4007b3:       48 8b 45 d8             mov    -0x28(%rbp),%rax
+  4007b7:       89 45 ec                mov    %eax,-0x14(%rbp)
+  4007ba:       48 8b 45 e0             mov    -0x20(%rbp),%rax
+  4007be:       89 c3                   mov    %eax,%ebx
+  # ===========================下面的代码就是执行循环和 body =================
+  4007c0:       e8 2b fe ff ff          callq  4005f0 <omp_get_thread_num@plt>
+  4007c5:       89 c2                   mov    %eax,%edx
+  4007c7:       8b 45 ec                mov    -0x14(%rbp),%eax
+  4007ca:       89 c6                   mov    %eax,%esi
+  4007cc:       bf 94 08 40 00          mov    $0x400894,%edi
+  4007d1:       b8 00 00 00 00          mov    $0x0,%eax
+  4007d6:       e8 25 fe ff ff          callq  400600 <printf@plt>
+  4007db:       83 45 ec 01             addl   $0x1,-0x14(%rbp)
+  4007df:       39 5d ec                cmp    %ebx,-0x14(%rbp)
+  4007e2:       7c dc                   jl     4007c0 <main._omp_fn.0+0x38>
+  # ======================================================================
+  # ============下面的代码主要是进行 while 循环查看循环是否执行完成==============
+  4007e4:       48 8d 55 e0             lea    -0x20(%rbp),%rdx
+  4007e8:       48 8d 45 d8             lea    -0x28(%rbp),%rax
+  4007ec:       48 89 d6                mov    %rdx,%rsi
+  4007ef:       48 89 c7                mov    %rax,%rdi
+  4007f2:       e8 d9 fd ff ff          callq  4005d0 <GOMP_loop_dynamic_next@plt>
+  4007f7:       84 c0                   test   %al,%al
+  4007f9:       75 b8                   jne    4007b3 <main._omp_fn.0+0x2b>
+  # ======================================================================
+  4007fb:       e8 10 fe ff ff          callq  400610 <GOMP_loop_end_nowait@plt>
+  400800:       48 83 c4 38             add    $0x38,%rsp
+  400804:       5b                      pop    %rbx
+  400805:       5d                      pop    %rbp
+  400806:       c3                      retq   
+  400807:       66 0f 1f 84 00 00 00    nopw   0x0(%rax,%rax,1)
+  40080e:       00 00
+```
+
+## 总结
+
+在本篇文章当中我们主要分析了 OpenMP 当中 for 循环动态调度方式的具体实现原理，以及动态库函数的分析。整个过程主要有两大部分，一个是编译角度，编译器会将 for construct 编译成什么样子，以及动态库函数具体是如何划分迭代分块的。在迭代分块当中主要分为两种方式，当分块数目多的时候不使用 CAS 因为这样线程之间竞争比较激烈，但是当分块数目比较小的时候就使用 CAS ，这种做法可以提高程序执行的效率。
+
+---
+
+更多精彩内容合集可访问项目：<https://github.com/Chang-LeHung/CSCore>
+
+关注公众号：一无是处的研究僧，了解更多计算机（Java、Python、计算机系统基础、算法与数据结构）知识。
+
