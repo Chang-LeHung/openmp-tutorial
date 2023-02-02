@@ -92,7 +92,7 @@ int main()
   4005da:       66 0f 1f 44 00 00       nopw   0x0(%rax,%rax,1)
 ```
 
-
+![](../images/16.png)
 
 ## dynamic 调度方式分析
 
