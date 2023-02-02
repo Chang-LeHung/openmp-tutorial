@@ -1,6 +1,6 @@
 
 
-# OpenMP For Construct 实现原理和源码分析
+# OpenMP For Construct dynamic 调度方式实现原理和源码分析
 
 ## 前言
 
@@ -172,10 +172,10 @@ enum gomp_schedule_type
 - num_threads，并行域当中指定启动线程的个数。
 - start，for 循环迭代的初始值，比如 for(int i = 0; ;) 这个 start 就是 0 。
 - end，for 循环迭代的最终值，比如 for(int i = 0; i < 100; i++) 这个 end 就是 100 。
-- incr，这个值一般都是 1 。
+- incr，这个值一般都是 1 或者 -1，如果是 for 循环是从小到达迭代这个值就是 1，反之就是 -1。
 - chunk_size，这个就是给一个线程划分块的时候一个块的大小，比如 schedule(dynamic, 1)，这个 chunk_size 就等于 1 。
 
-
+在函数 GOMP_parallel_loop_dynamic_start 当中会调用函数 gomp_parallel_loop_start ，这个函数的主要作用就是将整个循环的起始位置信息保存到线程组内部，那么就能够在函数 GOMP_loop_dynamic_next 当中直接使用这些信息进行不同线程的分块划分。GOMP_loop_dynamic_next 最终会调用函数 gomp_loop_dynamic_next ，其源代码如下所示：
 
 ```c
 static bool
@@ -185,34 +185,57 @@ gomp_loop_dynamic_next (long *istart, long *iend)
   ret = gomp_iter_dynamic_next (istart, iend);
   return ret;
 }
+```
 
+gomp_loop_dynamic_next 函数的返回值是一个布尔值：
+
+- 如果返回值为 true ，则说明还有剩余的分块需要执行。
+- 如果返回值为 false，则说明没有剩余的分块需要执行了，根据前面 dynamic 编译之后的结果，那么就会退出 while 循环。
+
+gomp_iter_dynamic_next 是划分具体的分块，并且将分块的起始位置保存到变量 istart 和 iend 当中，因为传递的是指针，就能够使用 s0 和 e0 得到数据的值，下面是 gomp_iter_dynamic_next 的源代码，就是具体的划分算法了。
+
+```c
 bool
 gomp_iter_dynamic_next (long *pstart, long *pend)
 {
+  // 得到当前线程的指针
   struct gomp_thread *thr = gomp_thread ();
+  // 得到线程组共享的数据
   struct gomp_work_share *ws = thr->ts.work_share;
   long start, end, nend, chunk, incr;
-
+  
+  // 保存迭代的最终值
   end = ws->end;
+  // 这个值一般都是 1
   incr = ws->incr;
+  // 保存分块的大小 chunk size
   chunk = ws->chunk_size;
-
+  
+  // ws->mode 在数据分块比较小的时候就是 1 在数据分块比较大的时候就是 0
   if (__builtin_expect (ws->mode, 1))
     {
+    // __sync_fetch_and_add 函数是一个原子操作 ws->next 的初始值为 for 循环的起始位置值
+    // 这个函数的返回值是 ws->next 的旧值 然后会将 ws->next 的值加上 chunk
+    // 并且整个操作是原子的 是并发安全的
       long tmp = __sync_fetch_and_add (&ws->next, chunk);
+    // 从小到大迭代
       if (incr > 0)
 	{
 	  if (tmp >= end)
 	    return false;
+    // 分块的最终位置
 	  nend = tmp + chunk;
+    // 溢出保护操作 分块的值需要小于最终的迭代位置
 	  if (nend > end)
 	    nend = end;
+    // 将分块的值赋值给 pstart 和 pend 这样就能够在并行域当中得到这个分块的区间了
 	  *pstart = tmp;
 	  *pend = nend;
 	  return true;
 	}
       else
 	{
+    // 同样的原理不过是从大到小达迭代
 	  if (tmp <= end)
 	    return false;
 	  nend = tmp + chunk;
@@ -223,13 +246,16 @@ gomp_iter_dynamic_next (long *pstart, long *pend)
 	  return true;
 	}
     }
-
+  
+  // 当数据分块比较大的时候执行下面的操作
+  // 下面的整体的流程相对比较容易理解整个过程就是一个比较并交换的过程
+  // 当比较并交换成功之后就返回结果 返回为 true 或者分块已经分完的话也进行返回
   start = ws->next;
   while (1)
     {
       long left = end - start;
       long tmp;
-
+      // 如果分块已经完全分完 就直接返回 false 
       if (start == end)
 	return false;
 
@@ -258,5 +284,8 @@ gomp_iter_dynamic_next (long *pstart, long *pend)
 }
 ```
 
+gomp_iter_dynamic_next 函数当中有两种情况的划分方式：
 
+- 当数据块相对比较小的时候，说明划分的次数就会相对多一点，在这种情况下如果使用 CAS 的话成功的概率就会相对低，对应的就会降低程序执行的效率，因此选择 __sync_fetch_and_add 以减少多线程的竞争情况，降低 CPU 的消耗。
 
+- 当数据块比较大的时候，说明划分的次数相对比较小，就使用比较并交换的操作（CAS），这样多个线程在进行竞争的时候开销就比较小。
