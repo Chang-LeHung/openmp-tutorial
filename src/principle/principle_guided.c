@@ -10,5 +10,7 @@ int main()
   {
     printf("i = %d tid = %d\n", i, omp_get_thread_num());
   }
+
+  printf("sizeof(unsigned long long) = %ld\n", sizeof (unsigned long long));
   return 0;
 }
