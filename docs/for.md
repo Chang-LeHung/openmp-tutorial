@@ -4,7 +4,7 @@
 
 ## 前言
 
-在本篇文章当中主要给大家介绍 OpenMp for construct 的实现原理，以及与他相关的动态库函数分析，与 for construct 非常相关的是循环的调度方式，在 OpenMP 当中一共有四种调度方式，auto, dynamic, guided, runtime, 在本篇文章当中主要是对 dynamic 的调度方式进行分析。
+在本篇文章当中主要给大家介绍 OpenMp for construct 的实现原理，以及与他相关的动态库函数分析，与 for construct 非常相关的是循环的调度方式，在 OpenMP 当中一共有四种调度方式，static, dynamic, guided, runtime, 在本篇文章当中主要是对 dynamic 的调度方式进行分析。
 
 ## 前置知识
 
