@@ -9,7 +9,7 @@
 我们使用下面的代码来分析一下 guided 调度的情况下整个程序的执行流程是怎么样的：
 
 ```c
-#pragma omp parallel for num_threads(t) schedule(dynamic, size)
+#pragma omp parallel for num_threads(t) schedule(guided, size)
 for (i = lb; i <= ub; i++)
   body;
 ```
@@ -79,7 +79,7 @@ gomp_parallel_loop_start (void (*fn) (void *), void *data,
 - incr，这个值一般都是 1 或者 -1，如果是 for 循环是从小到达迭代这个值就是 1，反之就是 -1，实际上这个值指的是 for 循环 i 大的增量。
 - chunk_size，这个就是给一个线程划分块的时候一个块的大小，比如 schedule(dynamic, 1)，这个 chunk_size 就等于 1 。
 
-事实上上面的代码和 GOMP_parallel_loop_dynamic_start 基本上一摸一样，函数参数也一直，唯一的区别就是调度方式的不同，上面的代码和前面的文章 [OpenMP For Construct dynamic 调度方式实现原理和源码分析](https://mp.weixin.qq.com/s?__biz=Mzg3ODgyNDgwNg==&mid=2247487775&idx=1&sn=112f5fb600584bdd4a7acfeddb58cd6e&chksm=cf0c8d16f87b040098e650d350dce82b1fa75549c05ba25d92c8a4da3da661cfcef5a5c9542c&token=1250927684&lang=zh_CN#rd) 基本一样因此不再进行详细的分析。
+事实上上面的代码和 GOMP_parallel_loop_dynamic_start 基本上一模一样，函数参数也一直，唯一的区别就是调度方式的不同，上面的代码和前面的文章 [OpenMP For Construct dynamic 调度方式实现原理和源码分析](https://mp.weixin.qq.com/s?__biz=Mzg3ODgyNDgwNg==&mid=2247487775&idx=1&sn=112f5fb600584bdd4a7acfeddb58cd6e&chksm=cf0c8d16f87b040098e650d350dce82b1fa75549c05ba25d92c8a4da3da661cfcef5a5c9542c&token=1250927684&lang=zh_CN#rd) 基本一样因此不再进行详细的分析。
 
 - GOMP_loop_guided_next，这是整个 guided 调度方式的核心代码（整个过程仍然使用 CAS 进行原子操作，保证并发安全）
 
