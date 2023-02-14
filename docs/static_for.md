@@ -114,10 +114,10 @@ gomp_iter_guided_next (long *pstart, long *pend)
     {
       unsigned long n, q;
       long tmp;
-
+			// 如果下一个分块的起始位置等于最终位置 那就说明没有需要继续分块的了 因此返回 false 表示没有分块需要执行了 
       if (start == end)
 	return false;
-
+    	// 下面就是整个划分的逻辑 大家可以吧 incr = 1 带入 就能够知道每次线程分得的数据就是当前剩下的数据处以线程的个数
       n = (end - start) / incr;
       q = (n + nthreads - 1) / nthreads;
 
@@ -127,7 +127,7 @@ gomp_iter_guided_next (long *pstart, long *pend)
 	nend = start + q * incr;
       else
 	nend = end;
-
+    	// 进行比较并交换操作 比较 start 和 ws->next 的值，如果相等则将 ws->next 的值变为 nend 并且返回 ws->next 原来的值
       tmp = __sync_val_compare_and_swap (&ws->next, start, nend);
       if (__builtin_expect (tmp == start, 1))
 	break;
