@@ -57,10 +57,13 @@ gomp_parallel_loop_start (void (*fn) (void *), void *data,
 			  long chunk_size)
 {
   struct gomp_team *team;
-
+	// 解析到底启动几个线程执行并行域的代码
   num_threads = gomp_resolve_num_threads (num_threads, 0);
+  // 创建线程组
   team = gomp_new_team (num_threads);
+  // 对共享数据进行初始化操作
   gomp_loop_init (&team->work_shares[0], start, end, incr, sched, chunk_size);
+  // 启动线程组执行函数 fn
   gomp_team_start (fn, data, num_threads, team);
 }
 
@@ -76,5 +79,65 @@ gomp_parallel_loop_start (void (*fn) (void *), void *data,
 - incr，这个值一般都是 1 或者 -1，如果是 for 循环是从小到达迭代这个值就是 1，反之就是 -1，实际上这个值指的是 for 循环 i 大的增量。
 - chunk_size，这个就是给一个线程划分块的时候一个块的大小，比如 schedule(dynamic, 1)，这个 chunk_size 就等于 1 。
 
-事实上上面的代码和 GOMP_parallel_loop_dynamic_start 基本上一摸一样，函数参数也一直，唯一的区别就是调度方式的不同。
+事实上上面的代码和 GOMP_parallel_loop_dynamic_start 基本上一摸一样，函数参数也一直，唯一的区别就是调度方式的不同，上面的代码和前面的文章 [OpenMP For Construct dynamic 调度方式实现原理和源码分析](https://mp.weixin.qq.com/s?__biz=Mzg3ODgyNDgwNg==&mid=2247487775&idx=1&sn=112f5fb600584bdd4a7acfeddb58cd6e&chksm=cf0c8d16f87b040098e650d350dce82b1fa75549c05ba25d92c8a4da3da661cfcef5a5c9542c&token=1250927684&lang=zh_CN#rd) 基本一样因此不再进行详细的分析。
+
+- GOMP_loop_guided_next，这是整个 guided 调度方式的核心代码（整个过程仍然使用 CAS 进行原子操作，保证并发安全）
+
+```c
+static bool
+gomp_loop_guided_next (long *istart, long *iend)
+{
+  bool ret;
+  ret = gomp_iter_guided_next (istart, iend);
+  return ret;
+}
+
+bool
+gomp_iter_guided_next (long *pstart, long *pend)
+{
+  struct gomp_thread *thr = gomp_thread ();
+  struct gomp_work_share *ws = thr->ts.work_share;
+  struct gomp_team *team = thr->ts.team;
+  unsigned long nthreads = team ? team->nthreads : 1;
+  long start, end, nend, incr;
+  unsigned long chunk_size;
+	
+  // 下一个分块的起始位置
+  start = ws->next;
+  // 最终位置 不能够超过这个位置
+  end = ws->end;
+  incr = ws->incr;
+  // chunk_size 是每个线程的分块大小
+  chunk_size = ws->chunk_size;
+
+  while (1)
+    {
+      unsigned long n, q;
+      long tmp;
+
+      if (start == end)
+	return false;
+
+      n = (end - start) / incr;
+      q = (n + nthreads - 1) / nthreads;
+
+      if (q < chunk_size)
+	q = chunk_size;
+      if (__builtin_expect (q <= n, 1))
+	nend = start + q * incr;
+      else
+	nend = end;
+
+      tmp = __sync_val_compare_and_swap (&ws->next, start, nend);
+      if (__builtin_expect (tmp == start, 1))
+	break;
+
+      start = tmp;
+    }
+
+  *pstart = start;
+  *pend = nend;
+  return true;
+}
+```
 
