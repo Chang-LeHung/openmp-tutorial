@@ -41,20 +41,27 @@ GOMP_barrier ();
 
 ## 动态库函数分析
 
-
+事实上在函数 GOMP_sections_start 和函数 GOMP_sections_next 当中调用的都是我们之前分析过的函数 gomp_iter_dynamic_next ，这个函数实际上就是让线程始终原子指令去竞争数据块（chunk），这个特点和 sections 需要完成的语意是相同的，只不过 sections 的块大小（chunk size）都是等于 1 的，因为一个线程一次只能够执行一个 section 代码块。
 
 ```c
 unsigned
 GOMP_sections_start (unsigned count)
 {
+  // 参数 count 的含义就是表示一共有多少个 section 代码块
+  // 得到当线程的相关数据
   struct gomp_thread *thr = gomp_thread ();
   long s, e, ret;
-
+  // 进行数据的初始化操作
+  // 将数据的 chunk size 设置等于 1
+  // 分割 chunk size 的起始位置设置成 1 因为根据上面的代码分析 0 表示退出循环 因此不能够使用 0 作为分割的起始位置
   if (gomp_work_share_start (false))
     {
       gomp_sections_init (thr->ts.work_share, count);
       gomp_work_share_init_done ();
     }
+  // 如果获取到一个 section 的执行权 gomp_iter_dynamic_next 返回 true 否则返回 false 
+  // s 和 e 分别表示 chunk 的起始位置和终止位置 但是在 sections 当中需要注意的是所有的 chunk size 都等于 1
+  // 这也很容易理解一次执行一个 section 代码块
   if (gomp_iter_dynamic_next (&s, &e))
     ret = s;
   else
