@@ -56,6 +56,7 @@ GOMP_sections_start (unsigned count)
   // 分割 chunk size 的起始位置设置成 1 因为根据上面的代码分析 0 表示退出循环 因此不能够使用 0 作为分割的起始位置
   if (gomp_work_share_start (false))
     {
+    // 这里传入 count 作为参数的原因是
       gomp_sections_init (thr->ts.work_share, count);
       gomp_work_share_init_done ();
     }
@@ -69,10 +70,21 @@ GOMP_sections_start (unsigned count)
   return ret;
 }
 
+// 下面是部分 gomp_sections_init 的代码
+static inline void
+gomp_sections_init (struct gomp_work_share *ws, unsigned count)
+{
+  ws->sched = GFS_DYNAMIC;
+  ws->chunk_size = 1; // 设置 chunk size 等于 1
+  ws->end = count + 1L; // 因为一共有 count 个 section 块
+  ws->incr = 1; // 每次增长一个
+  ws->next = 1; // 从 1 开始进行 chunk size 的分配
+}
 
 unsigned
 GOMP_sections_next (void)
 {
+  // 这个函数就比较容易理解了 就是获取一个 chunk 拿到对应的 section 的执行权
   long s, e, ret;
   if (gomp_iter_dynamic_next (&s, &e))
     ret = s;
@@ -81,6 +93,8 @@ GOMP_sections_next (void)
   return ret;
 }
 
+// 下面的函数在之前的很多文章当中都分析过了 这里不再进行分析
+// 下面的函数的主要过程就是使用 CAS 指令不断的进行尝试，直到获取成功或者全部获取完成 没有 chunk 需要分配
 bool
 gomp_iter_dynamic_next (long *pstart, long *pend)
 {
