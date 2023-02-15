@@ -56,7 +56,7 @@ GOMP_sections_start (unsigned count)
   // 分割 chunk size 的起始位置设置成 1 因为根据上面的代码分析 0 表示退出循环 因此不能够使用 0 作为分割的起始位置
   if (gomp_work_share_start (false))
     {
-    // 这里传入 count 作为参数的原因是
+    // 这里传入 count 作为参数的原因是需要设置 chunk 分配的最终位置 具体的源代码在下方
       gomp_sections_init (thr->ts.work_share, count);
       gomp_work_share_init_done ();
     }
@@ -78,7 +78,7 @@ gomp_sections_init (struct gomp_work_share *ws, unsigned count)
   ws->chunk_size = 1; // 设置 chunk size 等于 1
   ws->end = count + 1L; // 因为一共有 count 个 section 块
   ws->incr = 1; // 每次增长一个
-  ws->next = 1; // 从 1 开始进行 chunk size 的分配
+  ws->next = 1; // 从 1 开始进行 chunk size 的分配 因为 0 表示退出循环（编译器角度分析）
 }
 
 unsigned
@@ -166,4 +166,14 @@ gomp_iter_dynamic_next (long *pstart, long *pend)
   return true;
 }
 ```
+
+## 总结
+
+在本篇文章当中主要介绍了 OpenMP 当中 sections 的实现原理和相关的动态库函数分析，关于 sections 重点在编译器会如何对 sections 的编译指导语句进行处理的，动态库函数和 for 循环的动态调度方式是一样的，只不过 chunk size 设置成 1，分块的起始位置等于 1，分块的最终值是 section 代码块的个数，最终在动态调度的方式使用 CAS 不断获取 section 的执行权，指导所有的 section 被执行完成。
+
+---
+
+更多精彩内容合集可访问项目：<https://github.com/Chang-LeHung/CSCore>
+
+关注公众号：一无是处的研究僧，了解更多计算机（Java、Python、计算机系统基础、算法与数据结构）知识。
 
