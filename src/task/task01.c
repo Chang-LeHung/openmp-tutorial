@@ -1,7 +1,6 @@
 
 
 #include <stdio.h>
-#include "omp.h"
 
 int main()
 {
@@ -10,12 +9,7 @@ int main()
   {
 #pragma omp task default(none)
     {
-      int n = 1;
-      while (n < 10)
-      {
-#pragma omp taskyield
-        ++n;
-      }
+       printf("Hello World\n");
     }
   }
   return 0;
