@@ -11,6 +11,7 @@ int main()
      int data = omp_get_thread_num();
 #pragma omp task default(none) firstprivate(data) if(data > 100)
     {
+       data = omp_get_thread_num();
        printf("data = %d Hello World from tid = %d\n", data, omp_get_thread_num());
     }
   }

@@ -103,7 +103,7 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
 
 - fn，task 区域被编译之后的函数地址。
 - data，函数 fn 的参数。
-- cpyfn，参数拷贝函数，一般是 NULL，有时候需要 task 当中的数据不能是共享的，需要时私有的，这个时候可能就需要数据拷贝函数。
+- cpyfn，参数拷贝函数，一般是 NULL，有时候需要 task 当中的数据不能是共享的，需要时私有的，这个时候可能就需要数据拷贝函数，如果有数据需要及进行拷贝而且这个参数还为 NULL 的话，那么在 OpenMP 内部就会使用 memcpy 进行内存拷贝。
 - arg_size，参数的大小。
 - arg_align，参数多少字节对齐。
 - if_clause，if 子句当中的比较结果，如果没有 if 字句的话就是 true 。
@@ -123,6 +123,7 @@ int main()
      int data = omp_get_thread_num();
 #pragma omp task default(none) firstprivate(data) if(data > 100)
     {
+       data = omp_get_thread_num();
        printf("data = %d Hello World from tid = %d\n", data, omp_get_thread_num());
     }
   }
@@ -159,13 +160,13 @@ int main()
   4008fa:       8b 45 fc                mov    -0x4(%rbp),%eax
   4008fd:       89 45 f0                mov    %eax,-0x10(%rbp)
   400900:       48 8d 45 f0             lea    -0x10(%rbp),%rax
-  400904:       c7 04 24 00 00 00 00    movl   $0x0,(%rsp)
-  40090b:       41 89 d1                mov    %edx,%r9d
-  40090e:       41 b8 04 00 00 00       mov    $0x4,%r8d
-  400914:       b9 04 00 00 00          mov    $0x4,%ecx
-  400919:       ba 00 00 00 00          mov    $0x0,%edx
-  40091e:       48 89 c6                mov    %rax,%rsi
-  400921:       bf 2d 09 40 00          mov    $0x40092d,%edi
+  400904:       c7 04 24 00 00 00 00    movl   $0x0,(%rsp)	# 参数 flags
+  40090b:       41 89 d1                mov    %edx,%r9d	# 参数 if_clause
+  40090e:       41 b8 04 00 00 00       mov    $0x4,%r8d	# 参数 arg_align
+  400914:       b9 04 00 00 00          mov    $0x4,%ecx	# 参数 arg_size
+  400919:       ba 00 00 00 00          mov    $0x0,%edx	# 参数 cpyfn
+  40091e:       48 89 c6                mov    %rax,%rsi	# 参数 data
+  400921:       bf 2d 09 40 00          mov    $0x40092d,%edi	# 这里就是调用函数 main._omp_fn.1
   400926:       e8 85 fe ff ff          callq  4007b0 <GOMP_task@plt>
   40092b:       c9                      leaveq
   40092c:       c3                      retq
@@ -188,6 +189,8 @@ int main()
   40095e:       c3                      retq
   40095f:       90                      nop
 ```
+
+在上面的函数当中我们将 data 一个 4 字节的数据作为线程私有数据，可以看到给函数 GOMP_task 传递的参数参数的大小以及参数的内存对齐大小都发生来变化，从原来的 0 变成了 4，这因为 int 类型数据占 4 个字节。
 
 
 
