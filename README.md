@@ -14,3 +14,4 @@ openmp tutorial series
 - [OpenMP For Construct dynamic 调度方式实现原理和源码分析](./docs/for.md)
 - [OpenMP For Construct guided 调度方式实现原理和源码分析](./docs/static_for.md)
 - [OpenMP Sections Construct 实现原理以及源码分析](./docs/section.md)
+- [OpenMP Task Construct 实现原理以及源码分析](./docs/task.md)
