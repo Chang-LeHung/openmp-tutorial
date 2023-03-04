@@ -78,13 +78,26 @@ int main()
   400939:       0f 1f 80 00 00 00 00    nopl   0x0(%rax)
 ```
 
-从上面程序反汇编的结果我们可以知道，在主函数当中仍然和之前一样在并行域前后分别调用了 GOMP_parallel_start 和 GOMP_parallel_end，然后在两个函数之间调用并行域的代码 main.\_omp\_fn.0 ，并行域当中的代码被编译成函数 main.\_omp\_fn.0 
+从上面程序反汇编的结果我们可以知道，在主函数当中仍然和之前一样在并行域前后分别调用了 GOMP_parallel_start 和 GOMP_parallel_end，然后在两个函数之间调用并行域的代码 main.\_omp\_fn.0 ，并行域当中的代码被编译成函数 main.\_omp\_fn.0 ，从上面的汇编代码我们可以看到在函数 main.\_omp\_fn.0 调用了函数 GOMP_task ，这个函数的函数声明如下所示：
 
 ```c
 void
 GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
-	   long arg_size, long arg_align, bool if_clause, unsigned flags)
+	   long arg_size, long arg_align, bool if_clause, unsigned flags);
 ```
+
+在这里我们重要解释一下部分参数，首先我们需要了解的是在 x86 当中的函数调用规约，这一点我们在前面的文章当中已经讨论过了，这里只是说明一下：
+
+| 寄存器 | 含义       |
+| ------ | ---------- |
+| rdi    | 第一个参数 |
+| rsi    | 第二个参数 |
+| rdx    | 第三个参数 |
+| rcx    | 第四个参数 |
+| r8     | 第五个参数 |
+| r9     | 第六个参数 |
+
+根据上面的寄存器和参数的对应关系，在上面的汇编代码当中已经标注了对应的参数。在这些参数当中最重要的一个参数就是第一个函数指针，对应的汇编语句为 mov $0x400915,%edi，可以看到的是传入的函数的地址为 0x400915，根据上面的汇编程序可以知道这个地址对应的函数就是 main.\_omp\_fn.1，这其实就是 task 区域之间被编译之后的对应的函数，从上面的 main.\_omp\_fn.1 汇编程序当中也可以看出来调用了函数 omp\_get\_thread\_num，这和前面的 task 区域当中代码是相对应的。
 
 ```c
 
