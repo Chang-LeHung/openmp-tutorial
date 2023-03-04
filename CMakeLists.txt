@@ -2,9 +2,10 @@ cmake_minimum_required(VERSION 2.8.12.2)
 project(openmp_tutorial)
 
 set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_C_STANDARD 11)
 #set(CMAKE_C_COMPILER "gcc")
-set(CMAKE_C_COMPILER "/opt/rh/devtoolset-9/root/usr/bin/gcc")
-set(CMAKE_CXX_COMPILER "/opt/rh/devtoolset-9/root/usr/bin/g++")
+set(CMAKE_C_COMPILER "/usr/bin/gcc")
+set(CMAKE_CXX_COMPILER "/usr/bin/g++")
 set(CMAKE_BUILD_TYPE "Debug")
 
 set(CMAKE_C_FLAGS "-fopenmp -g ${CMAKE_C_FLAGS}")
