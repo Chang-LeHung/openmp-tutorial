@@ -99,8 +99,19 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
 
 根据上面的寄存器和参数的对应关系，在上面的汇编代码当中已经标注了对应的参数。在这些参数当中最重要的一个参数就是第一个函数指针，对应的汇编语句为 mov $0x400915,%edi，可以看到的是传入的函数的地址为 0x400915，根据上面的汇编程序可以知道这个地址对应的函数就是 main.\_omp\_fn.1，这其实就是 task 区域之间被编译之后的对应的函数，从上面的 main.\_omp\_fn.1 汇编程序当中也可以看出来调用了函数 omp\_get\_thread\_num，这和前面的 task 区域当中代码是相对应的。
 
-```c
+现在我们来解释一下其他的几个参数：
 
+- fn，task 区域被编译之后的函数地址。
+- data，函数 fn 的参数。
+- cpyfn，参数拷贝函数，一般是 NULL，有时候需要 task 当中的数据不能是共享的，需要时私有的，这个时候可能就需要数据拷贝函数。
+- arg_size，参数的大小。
+- arg_align，参数多少字节对齐。
+- if_clause，if 子句当中的比较结果，如果没有 if 字句的话就是 true 。
+- flags，用于表示 task construct 的特征或者属性，比如是否是最终任务。
+
+我们现在使用另外一个例子，来看看参数传递的变化。
+
+```c
 #include <stdio.h>
 #include <omp.h>
 
@@ -110,13 +121,72 @@ int main()
 #pragma omp parallel num_threads(4) default(none)
   {
      int data = omp_get_thread_num();
-#pragma omp task default(none) firstprivate(data)
+#pragma omp task default(none) firstprivate(data) if(data > 100)
     {
        printf("data = %d Hello World from tid = %d\n", data, omp_get_thread_num());
     }
   }
   return 0;
 }
+```
+
+上面的程序被编译之后对应的汇编程序如下所示：
+
+```asm
+00000000004008ad <main>:
+  4008ad:       55                      push   %rbp
+  4008ae:       48 89 e5                mov    %rsp,%rbp
+  4008b1:       48 83 ec 10             sub    $0x10,%rsp
+  4008b5:       ba 04 00 00 00          mov    $0x4,%edx
+  4008ba:       be 00 00 00 00          mov    $0x0,%esi
+  4008bf:       bf df 08 40 00          mov    $0x4008df,%edi
+  4008c4:       e8 87 fe ff ff          callq  400750 <GOMP_parallel_start@plt>
+  4008c9:       bf 00 00 00 00          mov    $0x0,%edi
+  4008ce:       e8 0c 00 00 00          callq  4008df <main._omp_fn.0>
+  4008d3:       e8 88 fe ff ff          callq  400760 <GOMP_parallel_end@plt>
+  4008d8:       b8 00 00 00 00          mov    $0x0,%eax
+  4008dd:       c9                      leaveq
+  4008de:       c3                      retq
+00000000004008df <main._omp_fn.0>:
+  4008df:       55                      push   %rbp
+  4008e0:       48 89 e5                mov    %rsp,%rbp
+  4008e3:       48 83 ec 20             sub    $0x20,%rsp
+  4008e7:       48 89 7d e8             mov    %rdi,-0x18(%rbp)
+  4008eb:       e8 80 fe ff ff          callq  400770 <omp_get_thread_num@plt>
+  4008f0:       89 45 fc                mov    %eax,-0x4(%rbp)
+  4008f3:       83 7d fc 64             cmpl   $0x64,-0x4(%rbp)
+  4008f7:       0f 9f c2                setg   %dl
+  4008fa:       8b 45 fc                mov    -0x4(%rbp),%eax
+  4008fd:       89 45 f0                mov    %eax,-0x10(%rbp)
+  400900:       48 8d 45 f0             lea    -0x10(%rbp),%rax
+  400904:       c7 04 24 00 00 00 00    movl   $0x0,(%rsp)
+  40090b:       41 89 d1                mov    %edx,%r9d
+  40090e:       41 b8 04 00 00 00       mov    $0x4,%r8d
+  400914:       b9 04 00 00 00          mov    $0x4,%ecx
+  400919:       ba 00 00 00 00          mov    $0x0,%edx
+  40091e:       48 89 c6                mov    %rax,%rsi
+  400921:       bf 2d 09 40 00          mov    $0x40092d,%edi
+  400926:       e8 85 fe ff ff          callq  4007b0 <GOMP_task@plt>
+  40092b:       c9                      leaveq
+  40092c:       c3                      retq
+000000000040092d <main._omp_fn.1>:
+  40092d:       55                      push   %rbp
+  40092e:       48 89 e5                mov    %rsp,%rbp
+  400931:       48 83 ec 20             sub    $0x20,%rsp
+  400935:       48 89 7d e8             mov    %rdi,-0x18(%rbp)
+  400939:       48 8b 45 e8             mov    -0x18(%rbp),%rax
+  40093d:       8b 00                   mov    (%rax),%eax
+  40093f:       89 45 fc                mov    %eax,-0x4(%rbp)
+  400942:       e8 29 fe ff ff          callq  400770 <omp_get_thread_num@plt>
+  400947:       89 c2                   mov    %eax,%edx
+  400949:       8b 45 fc                mov    -0x4(%rbp),%eax
+  40094c:       89 c6                   mov    %eax,%esi
+  40094e:       bf f0 09 40 00          mov    $0x4009f0,%edi
+  400953:       b8 00 00 00 00          mov    $0x0,%eax
+  400958:       e8 23 fe ff ff          callq  400780 <printf@plt>
+  40095d:       c9                      leaveq
+  40095e:       c3                      retq
+  40095f:       90                      nop
 ```
 
 
