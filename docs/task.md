@@ -30,40 +30,7 @@ int main()
 
 ![openmp](../images/17.png)
 
-任务的结构体描述如下所示：
-
-```c
-struct gomp_task
-{
-  struct gomp_task *parent;	// 任务的父亲任务
-  struct gomp_task *children;	// 子任务
-  struct gomp_task *next_child;	// 
-  struct gomp_task *prev_child;
-  struct gomp_task *next_queue;
-  struct gomp_task *prev_queue;
-  struct gomp_task_icv icv;
-  void (*fn) (void *);	// 编译之后的函数
-  void *fn_data;				// 函数参数
-  enum gomp_task_kind kind; // 任务类型 具体类型如下面的枚举类型
-  bool in_taskwait;	// 是否处于 taskwait 状态
-  bool in_tied_task; // 是不是在绑定任务当中
-  bool final_task; // 是不是最终任务
-  gomp_sem_t taskwait_sem; // 对象锁 用于保证线程操作这个数据的时候的线程安全
-};
-
-enum gomp_task_kind
-{
-  GOMP_TASK_IMPLICIT,
-  GOMP_TASK_IFFALSE,
-  GOMP_TASK_WAITING,
-  GOMP_TASK_TIED
-};
-
-```
-
-
-
-对应的反汇编程序如下所示：
+上面的 OpenMP task 程序对应的反汇编程序如下所示：
 
 ```asm
 00000000004008ad <main>:
@@ -111,6 +78,8 @@ enum gomp_task_kind
   400939:       0f 1f 80 00 00 00 00    nopl   0x0(%rax)
 ```
 
+从上面程序反汇编的结果我们可以知道，在主函数当中仍然和之前一样在并行域前后分别调用了 GOMP_parallel_start 和 GOMP_parallel_end，然后在两个函数之间调用并行域的代码 main.\_omp\_fn.0 ，并行域当中的代码被编译成函数 main.\_omp\_fn.0 
+
 ```c
 void
 GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
@@ -135,6 +104,43 @@ int main()
   }
   return 0;
 }
+```
+
+
+
+
+
+## Task Construct 源码分析
+
+任务的结构体描述如下所示：
+
+```c
+struct gomp_task
+{
+  struct gomp_task *parent;	// 任务的父亲任务
+  struct gomp_task *children;	// 子任务
+  struct gomp_task *next_child;	// 
+  struct gomp_task *prev_child;
+  struct gomp_task *next_queue;
+  struct gomp_task *prev_queue;
+  struct gomp_task_icv icv;
+  void (*fn) (void *);	// 编译之后的函数
+  void *fn_data;				// 函数参数
+  enum gomp_task_kind kind; // 任务类型 具体类型如下面的枚举类型
+  bool in_taskwait;	// 是否处于 taskwait 状态
+  bool in_tied_task; // 是不是在绑定任务当中
+  bool final_task; // 是不是最终任务
+  gomp_sem_t taskwait_sem; // 对象锁 用于保证线程操作这个数据的时候的线程安全
+};
+
+enum gomp_task_kind
+{
+  GOMP_TASK_IMPLICIT,
+  GOMP_TASK_IFFALSE,
+  GOMP_TASK_WAITING,
+  GOMP_TASK_TIED
+};
+
 ```
 
 ```c
@@ -260,8 +266,5 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
 	gomp_team_barrier_wake (&team->barrier, 1);
     }
 }
-
 ```
-
-
 
