@@ -35,8 +35,8 @@ int main()
 ```c
 struct gomp_task
 {
-  struct gomp_task *parent;			// 任务的父亲任务
-  struct gomp_task *children;		// 子任务
+  struct gomp_task *parent;	// 任务的父亲任务
+  struct gomp_task *children;	// 子任务
   struct gomp_task *next_child;	// 
   struct gomp_task *prev_child;
   struct gomp_task *next_queue;
@@ -137,7 +137,7 @@ int main()
 }
 ```
 
-```asm
+```c
 
 /* Called when encountering an explicit task directive.  If IF_CLAUSE is
    false, then we must not delay in executing the task.  If UNTIED is true,
@@ -262,4 +262,6 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
 }
 
 ```
+
+
 
