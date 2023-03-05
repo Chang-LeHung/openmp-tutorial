@@ -194,6 +194,8 @@ int main()
 
 ## Task Construct 源码分析
 
+在本小节当中主要谈论在 OpenMP 内部是如何实现 task 的，关于这一部分内容设计的内容还是比较庞杂，首先需要了解的是在 OpenMP 当中使用 task construct 的被称作显示任务（explicit task），这种任务在 OpenMP 当中会有两个任务队列（双向循环队列），将所有的任务都保存在这样一张列表当中。
+
 任务的结构体描述如下所示：
 
 ```c
@@ -201,12 +203,12 @@ struct gomp_task
 {
   struct gomp_task *parent;	// 任务的父亲任务
   struct gomp_task *children;	// 子任务
-  struct gomp_task *next_child;	// 
-  struct gomp_task *prev_child;
-  struct gomp_task *next_queue;
-  struct gomp_task *prev_queue;
+  struct gomp_task *next_child;	// 下一个子任务
+  struct gomp_task *prev_child;	// 上一个子任务
+  struct gomp_task *next_queue;	// 下一个任务 （不一定是同一个线程创建的子任务）
+  struct gomp_task *prev_queue;	// 上一个任务 （不一定是同一个线程创建的子任务）
   struct gomp_task_icv icv;
-  void (*fn) (void *);	// 编译之后的函数
+  void (*fn) (void *);	// task construct 被编译之后的函数
   void *fn_data;				// 函数参数
   enum gomp_task_kind kind; // 任务类型 具体类型如下面的枚举类型
   bool in_taskwait;	// 是否处于 taskwait 状态
@@ -215,6 +217,7 @@ struct gomp_task
   gomp_sem_t taskwait_sem; // 对象锁 用于保证线程操作这个数据的时候的线程安全
 };
 
+// openmp 当中的任务的状态
 enum gomp_task_kind
 {
   GOMP_TASK_IMPLICIT,
