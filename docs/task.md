@@ -194,7 +194,9 @@ int main()
 
 ## Task Construct 源码分析
 
-在本小节当中主要谈论在 OpenMP 内部是如何实现 task 的，关于这一部分内容设计的内容还是比较庞杂，首先需要了解的是在 OpenMP 当中使用 task construct 的被称作显示任务（explicit task），这种任务在 OpenMP 当中会有两个任务队列（双向循环队列），将所有的任务都保存在这样一张列表当中。
+在本小节当中主要谈论在 OpenMP 内部是如何实现 task 的，关于这一部分内容设计的内容还是比较庞杂，首先需要了解的是在 OpenMP 当中使用 task construct 的被称作显示任务（explicit task），这种任务在 OpenMP 当中会有两个任务队列（双向循环队列），将所有的任务都保存在这样一张列表当中，整体结构如下图所示：
+
+![openmp](../images/18.png)
 
 任务的结构体描述如下所示：
 
@@ -227,6 +229,8 @@ enum gomp_task_kind
 };
 
 ```
+
+在了解完上面的数据结构之后我们来看一下前面的给 OpenMP 内部提交任务的函数 GOMP_task，其源代码如下所示：
 
 ```c
 
