@@ -276,6 +276,7 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
       thr->task = &task;
       if (__builtin_expect (cpyfn != NULL, 0))
 	{
+        // 这里是进行数据的拷贝
 	  char buf[arg_size + arg_align - 1];
 	  char *arg = (char *) (((uintptr_t) buf + arg_align - 1)
 				& ~(uintptr_t) (arg_align - 1));
@@ -283,6 +284,7 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
 	  fn (arg);
 	}
       else
+        // 如果不需要进行数据拷贝则直接执行这个函数
 	fn (data);
       /* Access to "children" is normally done inside a task_lock
 	 mutex region, but the only way this particular task.children
@@ -303,6 +305,7 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
     }
   else
     {
+    // 下面就是将任务先提交到任务队列当中然后再取出执行
       struct gomp_task *task;
       struct gomp_task *parent = thr->task;
       char *arg;
@@ -315,6 +318,8 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
       task->kind = GOMP_TASK_IFFALSE;
       task->in_tied_task = parent->in_tied_task;
       thr->task = task;
+    // 这里就是参数拷贝逻辑 如果存在拷贝函数就通过拷贝函数进行参数赋值 否则使用 memcpy 进行
+    // 参数的拷贝
       if (cpyfn)
 	cpyfn (arg, data);
       else
@@ -325,6 +330,8 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
       task->fn_data = arg;
       task->in_tied_task = true;
       task->final_task = (flags & 2) >> 1;
+    // 在这里获取全局队列锁 保证下面的代码在多线程条件下的线程安全
+    // 因为在下面的代码当中会对全局的队列进行修改操作 下面的操作就是队列的一些基本操作啦
       gomp_mutex_lock (&team->task_lock);
       if (parent->children)
 	{
@@ -362,4 +369,115 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
     }
 }
 ```
+
+对于上述所讨论的内容大家只需要了解相关的整体流程即可，细节除非你是 openmp 的开发人员，否则事实上没有多大用，大家只需要了解大致过程即可，帮助你进一步深入理解 OpenMP 内部的运行机制。
+
+但是需要了解的是上面的整个过程还只是将任务提交到 OpenMP 内部的任务队列当中，还没有执行，我们在前面谈到过在线程执行完并行域的代码会执行函数 GOMP_parallel_end 在这个函数内部还会调用其他函数，最终会调用函数 gomp_barrier_handle_tasks  将内部的所有的任务执行完成。
+
+```c
+void
+gomp_barrier_handle_tasks (gomp_barrier_state_t state)
+{
+  struct gomp_thread *thr = gomp_thread ();
+  struct gomp_team *team = thr->ts.team;
+  struct gomp_task *task = thr->task;
+  struct gomp_task *child_task = NULL;
+  struct gomp_task *to_free = NULL;
+
+  // 首先对全局的队列结构进行加锁操作
+  gomp_mutex_lock (&team->task_lock);
+  if (gomp_barrier_last_thread (state))
+    {
+      if (team->task_count == 0)
+	{
+	  gomp_team_barrier_done (&team->barrier, state);
+	  gomp_mutex_unlock (&team->task_lock);
+	  gomp_team_barrier_wake (&team->barrier, 0);
+	  return;
+	}
+      gomp_team_barrier_set_waiting_for_tasks (&team->barrier);
+    }
+
+  while (1)
+    {
+      if (team->task_queue != NULL)
+	{
+	  struct gomp_task *parent;
+	// 从任务队列当中拿出一个任务
+	  child_task = team->task_queue;
+	  parent = child_task->parent;
+	  if (parent && parent->children == child_task)
+	    parent->children = child_task->next_child;
+	  child_task->prev_queue->next_queue = child_task->next_queue;
+	  child_task->next_queue->prev_queue = child_task->prev_queue;
+	  if (child_task->next_queue != child_task)
+	    team->task_queue = child_task->next_queue;
+	  else
+	    team->task_queue = NULL;
+	  child_task->kind = GOMP_TASK_TIED;
+	  team->task_running_count++;
+	  if (team->task_count == team->task_running_count)
+	    gomp_team_barrier_clear_task_pending (&team->barrier);
+	}
+      gomp_mutex_unlock (&team->task_lock);
+      if (to_free) // 释放任务的内存空间 to_free 在后面会被赋值成 child_task
+	{
+	  gomp_finish_task (to_free);
+	  free (to_free);
+	  to_free = NULL;
+	}
+      if (child_task) // 调用任务对应的函数
+	{
+	  thr->task = child_task;
+	  child_task->fn (child_task->fn_data);
+	  thr->task = task;
+	}
+      else
+	return; // 退出 while 循环
+      gomp_mutex_lock (&team->task_lock);
+      if (child_task)
+	{
+	  struct gomp_task *parent = child_task->parent;
+	  if (parent)
+	    {
+	      child_task->prev_child->next_child = child_task->next_child;
+	      child_task->next_child->prev_child = child_task->prev_child;
+	      if (parent->children == child_task)
+		{
+		  if (child_task->next_child != child_task)
+		    parent->children = child_task->next_child;
+		  else
+		    {
+		      /* We access task->children in GOMP_taskwait
+			 outside of the task lock mutex region, so
+			 need a release barrier here to ensure memory
+			 written by child_task->fn above is flushed
+			 before the NULL is written.  */
+		      __atomic_store_n (&parent->children, NULL,
+					MEMMODEL_RELEASE);
+		      if (parent->in_taskwait)
+			gomp_sem_post (&parent->taskwait_sem);
+		    }
+		}
+	    }
+	  gomp_clear_parent (child_task->children);
+	  to_free = child_task;
+	  child_task = NULL;
+	  team->task_running_count--;
+	  if (--team->task_count == 0
+	      && gomp_team_barrier_waiting_for_tasks (&team->barrier))
+	    {
+	      gomp_team_barrier_done (&team->barrier, state);
+	      gomp_mutex_unlock (&team->task_lock);
+	      gomp_team_barrier_wake (&team->barrier, 0);
+	      gomp_mutex_lock (&team->task_lock);
+	    }
+	}
+    }
+}
+```
+
+## 总结
+
+在本篇文章当中主要给大家介绍了，OpenMP 内部对于任务的处理流程，这其中的细节非常复杂，大家只需要了解它的整个工作流程即可，这已经能够帮助大家理清楚整个 OpenMP 内部是如何对任务进行处理的，如果大家感兴趣可以自行研读源程序。
 
