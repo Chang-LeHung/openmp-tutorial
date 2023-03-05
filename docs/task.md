@@ -198,6 +198,8 @@ int main()
 
 ![openmp](../images/18.png)
 
+在上图当中由同一个线程创建的任务为 child_task，他们之间使用 next_child 和 prev_child 两个指针进行连接，不同线程创建的任务之间可以使用 next_queue 和 prev_queue 两个指针进行连接。
+
 任务的结构体描述如下所示：
 
 ```c
@@ -209,9 +211,9 @@ struct gomp_task
   struct gomp_task *prev_child;	// 上一个子任务
   struct gomp_task *next_queue;	// 下一个任务 （不一定是同一个线程创建的子任务）
   struct gomp_task *prev_queue;	// 上一个任务 （不一定是同一个线程创建的子任务）
-  struct gomp_task_icv icv;
+  struct gomp_task_icv icv; // openmp 当中内部全局设置使用变量的值（internal control variable）
   void (*fn) (void *);	// task construct 被编译之后的函数
-  void *fn_data;				// 函数参数
+  void *fn_data;	// 函数参数
   enum gomp_task_kind kind; // 任务类型 具体类型如下面的枚举类型
   bool in_taskwait;	// 是否处于 taskwait 状态
   bool in_tied_task; // 是不是在绑定任务当中
@@ -243,6 +245,7 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
 	   long arg_size, long arg_align, bool if_clause, unsigned flags)
 {
   struct gomp_thread *thr = gomp_thread ();
+  // team 是 OpenMP 一个线程组当中共享的数据
   struct gomp_team *team = thr->ts.team;
 
 #ifdef HAVE_BROKEN_POSIX_SEMAPHORES
@@ -256,6 +259,9 @@ GOMP_task (void (*fn) (void *), void *data, void (*cpyfn) (void *, void *),
     flags &= ~1;
 #endif
 
+  // 这里表示如果是 if 子句的条件为真的时候或者是孤立任务(team == NULL )或者是最终任务的时候或者任务队列当中的任务已经很多的时候
+  // 提交的任务需要立即执行而不能够放入任务队列当中然后在 GOMP_parallel_end 函数当中进行任务的取出
+  // 再执行
   if (!if_clause || team == NULL
       || (thr->task && thr->task->final_task)
       || team->task_count > 64 * team->nthreads)
